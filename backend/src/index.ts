@@ -1,10 +1,10 @@
 // feat(socket): initiate socket.io gateway handler for high-frequency geolocation signals  
 import express from 'express';
 import 'reflect-metadata';
+import { AppDataSource } from './config/database'
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
-import redisClient from './config/redis';
 import cors from 'cors';
 import { initSockets } from './sockets';
 // Load biến môi trường
@@ -17,6 +17,16 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Kết nối Database
+AppDataSource.initialize()
+    .then(() => {
+        console.log('ĐÃ KẾT NỐI THÀNH CÔNG ĐẾN POSTGRESQL');
+    })
+    .catch((error) => {
+        console.error('Lỗi kết nối PostgreSQL:', error);
+    });
+
 
 // Tạo HTTP dùng cho SocketIO
 const httpServer = createServer(app);
