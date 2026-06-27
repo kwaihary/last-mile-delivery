@@ -77,7 +77,7 @@ export class OrderController {
     // Dùng GET /api/orders (Xem tất cả đơn hàng)
     static async getAllOrders(req: Request, res: Response) {
         try {
-            const orders = await orderRepo.find({ relations: {'manager': true, 'driver': true} });
+            const orders = await orderRepo.find({ relations: { 'manager': true, 'driver': true } });
             return sendResponse(res, 200, orders);
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);
@@ -98,9 +98,9 @@ export class OrderController {
             order.assigned_at = new Date();
             await orderRepo.save(order);
 
-            // ĐỒNG BỘ THẬT VỚI SƠ ĐỒ HASH: Lưu trạng thái tài xế vào Redis
+            // Lưu trạng thái tài xế vào Redis
             await redisClient.hset(`driver:status:${driver_id}`,
-                'current_status', 'busy',
+                'current_status', 'delivering',
                 'active_order_id', String(orderId)
             );
 
