@@ -7,6 +7,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { initSockets } from './sockets';
+import orderRoutes from './routes/orderRoutes'
 import userRoutes from './routes/userRoutes'
 // Load biến môi trường
 dotenv.config();
@@ -41,6 +42,7 @@ const io = new Server(httpServer, {
 
 initSockets(io);
 
+app.use('/api/orders', orderRoutes);
 app.use('/api/users', userRoutes);
 
 app.get('/health', (req, res) => {
