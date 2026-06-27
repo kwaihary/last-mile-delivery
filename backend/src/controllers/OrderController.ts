@@ -12,7 +12,7 @@ const orderRepo = AppDataSource.getRepository(Order);
 const proofRepo = AppDataSource.getRepository(DeliveryProof);
 const routeRepo = AppDataSource.getRepository(RouteHistory);
 
-// Hàm tính khoảng cách giữa 2 tọa độ theo công thức Haversine (Đơn vị: km)
+// Hàm tính khoảng cách giữa 2 tọa độ theo công thức Haversine ( Đơn vị: km )
 function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371; // Bán kính Trái Đất tính bằng km
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -48,7 +48,7 @@ function calculateTotalRouteDistance(routes: Array<{ lat: number, lng: number, t
 
 
 export class OrderController {
-    // Dùng POST /api/orders (Tạo đơn hàng)
+    // Dùng POST /api/orders ( Tạo đơn hàng )
     static async createOrder(req: any, res: Response) {
         try {
             const manager_id = req.user.id;
@@ -74,7 +74,7 @@ export class OrderController {
         }
     }
 
-    // Dùng GET /api/orders (Xem tất cả đơn hàng)
+    // Dùng GET /api/orders ( Xem tất cả đơn hàng )
     static async getAllOrders(req: Request, res: Response) {
         try {
             const orders = await orderRepo.find({ relations: { 'manager': true, 'driver': true } });
@@ -84,7 +84,7 @@ export class OrderController {
         }
     }
 
-    // Dùng PATCH /api/orders/:id/assign (Điều phối viên gán đơn)
+    // Dùng PATCH /api/orders/:id/assign ( Điều phối viên gán đơn )
     static async assignOrder(req: Request, res: Response) {
         try {
             const orderId = Number(req.params.id);
@@ -110,7 +110,7 @@ export class OrderController {
         }
     }
 
-    // Dùng PATCH /api/orders/:id/status (Tài xế cập nhật trạng thái)
+    // Dùng PATCH /api/orders/:id/status ( Tài xế cập nhật trạng thái )
     static async updateOrderStatus(req: any, res: Response) {
         try {
             const orderId = Number(req.params.id);
@@ -165,7 +165,7 @@ export class OrderController {
                 await redisClient.del(`order:route:${orderId}`);
             }
 
-            // Giải phóng trạng thái tài xế về idle (Rảnh) trong Redis HASH
+            // Trạng thái tài xế về idle ( Rảnh ) trong Redis
             await redisClient.hset(`driver:status:${driverId}`,
                 'current_status', 'idle',
                 'active_order_id', ''
@@ -200,7 +200,7 @@ export class OrderController {
             await redisClient.geoadd('drivers:locations', lng, lat, driverId.toString());
 
             await redisClient.hset(`driver:status:${driverId}`,
-                'current_status', 'busy',
+                'current_status', 'delivering',
                 'last_ping', String(Math.floor(Date.now() / 1000))
             );
 
@@ -218,7 +218,7 @@ export class OrderController {
             // Lấy toàn bộ danh sách tọa độ của đơn hàng đang chạy trong Redis
             const routes = await redisClient.lrange(`order:route:${orderId}`, 0, -1);
 
-            // Giải mã chuỗi JSON thành mảng Object tọa độ thực tế
+            // Giải mã chuỗi JSON thành mảng Object tọa độ
             const parsedRoutes = routes.map(route => JSON.parse(route));
 
             return sendResponse(res, 200, parsedRoutes);
