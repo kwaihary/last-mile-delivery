@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, OneToOne } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, OneToOne, BeforeInsert, BeforeUpdate } from "typeorm";
+import * as bcrypt from 'bcrypt'
 import { Order } from './Order';
 import { DriverProfile } from './DriverProfile'
 import { RouteHistory } from "./RouteHistory";
@@ -13,6 +14,16 @@ export class User {
 
     @Column({ type: 'varchar', length: 255, nullable: false })
     password: string;
+
+    @BeforeInsert()
+    @BeforeUpdate()
+    async hashPassword() {
+        // hash nếu password tồn tại và chưa hash
+        if (this.password && !this.password.startsWith('$2b$') && !this.password.startsWith('$2a$')) {
+            const salt = await bcrypt.genSalt(10);
+            this.password = await bcrypt.hash(this.password, salt);
+        }
+    }
 
     @Column({ type: 'varchar', length: 100, nullable: false })
     full_name: string;
@@ -38,7 +49,7 @@ export class User {
     @OneToMany(() => Order, (order) => order.driver)
     assigned_orders: Order[];
 
-    @OneToOne(() => DriverProfile, (profile) => profile.user, { nullable: true})
+    @OneToOne(() => DriverProfile, (profile) => profile.user, { nullable: true })
     driver_profile: DriverProfile;
 
     @OneToMany(() => RouteHistory, (history) => history.driver)
