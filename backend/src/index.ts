@@ -7,6 +7,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { initSockets } from './sockets';
+import driverRoutes from './routes/driverRoutes'
 import orderRoutes from './routes/orderRoutes'
 import userRoutes from './routes/userRoutes'
 // Load biến môi trường
@@ -44,6 +45,7 @@ initSockets(io);
 
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/drivers', driverRoutes);
 
 app.get('/health', (req, res) => {
     res.status(200).json({
