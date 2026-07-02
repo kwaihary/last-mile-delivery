@@ -1,8 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, OneToOne, BeforeInsert, BeforeUpdate } from "typeorm";
+import * as bcrypt from 'bcrypt'
 import { Order } from './Order';
 import { DriverProfile } from './DriverProfile'
 import { RouteHistory } from "./RouteHistory";
-import * as bcrypt from 'bcrypt'
 
 @Entity('users')
 export class User {
@@ -19,6 +19,7 @@ export class User {
     @BeforeUpdate()
     async hashPassword() {
         // Chỉ băm nếu password tồn tại và chưa được băm (Bcrypt hash thường bắt đầu bằng $2a$ hoặc $2b$)
+        // hash nếu password tồn tại và chưa hash
         if (this.password && !this.password.startsWith('$2b$') && !this.password.startsWith('$2a$')) {
             const salt = await bcrypt.genSalt(10);
             this.password = await bcrypt.hash(this.password, salt);
@@ -49,7 +50,7 @@ export class User {
     @OneToMany(() => Order, (order) => order.driver)
     assigned_orders: Order[];
 
-    @OneToOne(() => DriverProfile, (profile) => profile.user, { nullable: true})
+    @OneToOne(() => DriverProfile, (profile) => profile.user, { nullable: true })
     driver_profile: DriverProfile;
 
     @OneToMany(() => RouteHistory, (history) => history.driver)

@@ -1,10 +1,15 @@
-// feat(socket): initiate socket.io gateway handler for high-frequency geolocation signals 
+// feat(socket): initiate socket.io gateway handler for high-frequency geolocation signals  
 import express from 'express';
 import 'reflect-metadata';
-import { AppDataSource } from './config/database';
+import { AppDataSource } from './config/database'
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import cors from 'cors';
-
+import { initSockets } from './sockets';
+import driverRoutes from './routes/driverRoutes'
+import orderRoutes from './routes/orderRoutes'
+import userRoutes from './routes/userRoutes'
 // Load biến môi trường
 dotenv.config();
 
@@ -19,17 +24,28 @@ app.use(express.json());
 // Kết nối Database
 AppDataSource.initialize()
     .then(() => {
-        console.log('✅ ĐÃ KẾT NỐI THÀNH CÔNG ĐẾN POSTGRESQL VÀ ĐỒNG BỘ MODELS');
+        console.log('ĐÃ KẾT NỐI THÀNH CÔNG ĐẾN POSTGRESQL');
     })
     .catch((error) => {
-        console.error('❌ Lỗi kết nối PostgreSQL:', error);
+        console.error('Lỗi kết nối PostgreSQL:', error);
     });
 
-// Test
-app.get('/', (req, res) => {
-    res.send('Chào mừng bạn đến với Website Giao Hàng Chặng Cuối !');
-});
 
+// Tạo HTTP dùng cho SocketIO
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST'],
+        credentials: true
+    }
+})
+
+initSockets(io);
+
+app.use('/api/users', userRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/drivers', driverRoutes);
 
 app.get('/health', (req, res) => {
     res.status(200).json({
@@ -38,6 +54,6 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
     console.log(`Server is running on: http://localhost:${PORT}`);
 });
