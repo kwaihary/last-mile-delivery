@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { io, Socket } from 'socket.io-client';
 import LiveMap from '../components/LiveMap';
+import { toast } from 'react-toastify';
+import axios from 'axios';
 
 const Dashboard = () => {
     // Quản lý trạng thái giao diện
@@ -13,6 +15,83 @@ const Dashboard = () => {
     const [orders, setOrders] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [driversData, setDriversData] = useState<{ [key: string]: any }>({});
+
+    // Form tạo đơn
+    const [formData, setFormData] = useState({
+        customer_name: '',
+        customer_phone: '',
+        address: '',
+        ship_cod: 0,
+        order_notes: ''
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleCreateOrder = async (e: React.SyntheticEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+
+        try {
+            // 1. GỌI API PHOTON (MIỄN PHÍ 100% - KHÔNG CẦN KEY/VISA)
+            // Thêm cấu hình bias để ưu tiên tìm kiếm vị trí xung quanh khu vực Việt Nam
+            const photonUrl = `https://komoot.io{encodeURIComponent(formData.address)}&limit=1&lang=en`;
+            const photonResponse = await axios.get(photonUrl);
+
+            let lat = 10.762622; // Tọa độ mặc định TP.HCM đề phòng
+            let lng = 106.660172;
+
+            // Phân tích cấu trúc hình học GeoJSON siêu đơn giản của Photon API
+            if (photonResponse.data && photonResponse.data.features && photonResponse.data.features.length > 0) {
+                // Lưu ý: Chuẩn GeoJSON trả về mảng tọa độ dạng [Kinh độ, Vĩ độ] ([lng, lat])
+                const coordinates = photonResponse.data.features[0].geometry.coordinates;
+                lng = Number(coordinates[0]);
+                lat = Number(coordinates[1]);
+                console.log("Tìm thấy tọa độ từ Photon API:", lat, lng);
+            } else {
+                console.warn("Không tìm thấy địa chỉ, hệ thống áp dụng tọa độ mặc định.");
+            }
+
+            // 2. GỬI DỮ LIỆU ĐÃ CÓ TỌA ĐỘ CHUẨN LÊN BACKEND CỦA BẠN
+            await api.post('/orders', {
+                customer_name: formData.customer_name,
+                customer_phone: formData.customer_phone,
+                address: formData.address,
+                ship_cod: Number(formData.ship_cod), // Ép kiểu số tránh lỗi DB
+                order_notes: formData.order_notes,
+                latitude: lat,
+                longitude: lng
+            });
+
+            toast.success("Tạo đơn hàng thành công!");
+            setIsCreateModalOpenCreateOrder(false); // Đóng Modal tạo đơn
+            fetchOrders(); // Tải lại danh sách đơn hàng mới trên giao diện
+
+            // Reset form về trạng thái trống
+            setFormData({ customer_name: '', customer_phone: '', address: '', ship_cod: 0, order_notes: '' });
+
+        } catch (error: any) {
+            console.error("Lỗi hệ thống chi tiết:", error);
+
+            if (error.response) {
+                // Nếu Backend nhận được nhưng báo lỗi (Ví dụ: Trùng mã, lỗi validation database)
+                toast.error(error.response.data?.message || error.response.data?.error || "Backend từ chối dữ liệu!");
+            } else {
+                // Nếu lỗi nghẽn mạng do CORS hoặc chưa bật server Backend
+                toast.error("Không thể kết nối đến máy chủ Backend, vui lòng kiểm tra lại cấu hình CORS!");
+            }
+        } finally {
+            setIsSubmitting(false); // Tắt trạng thái loading của nút bấm
+        }
+    };
+
+    // Tính toán dữ liệu cho thống kê
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter((o: any) => o.status === 'completed').length;
+    const successRate = totalOrders === 0 ? 0 : ((completedOrders / totalOrders) * 100).toFixed(1);
+
+    const totalCOD = orders.reduce((sum: number, o: any) => sum + Number(o.ship_cod || 0), 0);
+    const formattedCOD = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalCOD);
+
+    const activeDriversCount = Object.keys(driversData).length;
 
     // Lấy danh sách đơn hàng
     const fetchOrders = async () => {
@@ -144,156 +223,120 @@ const Dashboard = () => {
 
             {/* Modal Tạo Đơn Hàng */}
             {isCreateModalOpenCreateOrder && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
-                    {/* Bỏ nội dung Form tạo đơn vào đây */}
-                    <div className="p-6">
-                        <h2 className="text-xl font-bold mb-4">Tạo Đơn Hàng Mới</h2>
-                        {/* Form input... */}
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsCreateModalOpenCreateOrder(false)} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg">Hủy</button>
-                            <button className="px-4 py-2 text-white bg-blue-600 rounded-lg">Xác nhận tạo</button>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
+                    <form onSubmit={handleCreateOrder} className="p-8 space-y-6 max-h-[90vh] overflow-y-auto">
+                        <h2 className="text-3xl font-black text-slate-800 border-b pb-4">Tạo Đơn Hàng Mới</h2>
+
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm">1</span>
+                                Thông tin Khách hàng
+                            </h3>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Tên người nhận <span className="text-red-500">*</span></label>
+                                    <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: Nguyễn Văn A" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Số điện thoại <span className="text-red-500">*</span></label>
+                                    <input type="tel" required value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: 0901234567" />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Địa chỉ giao hàng (Cụ thể để Google Map quét Tọa độ) <span className="text-red-500">*</span></label>
+                                    <input type="text" required value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: 65 Huỳnh Thúc Kháng, Bến Nghé, Quận 1, Hồ Chí Minh" />
+                                </div>
+                            </div>
                         </div>
-                    </div>
+
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <span className="w-6 h-6 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-sm">2</span>
+                                Chi tiết gói hàng
+                            </h3>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Tiền thu hộ (COD)</label>
+                                    <input type="number" min="0" value={formData.ship_cod} onChange={(e) => setFormData({ ...formData, ship_cod: Number(e.target.value) })} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="0 VNĐ" />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Ghi chú cho Tài xế</label>
+                                    <textarea rows={3} value={formData.order_notes} onChange={(e) => setFormData({ ...formData, order_notes: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: Khách hàng chỉ nhận giờ hành chính..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-4 mt-6">
+                            <button type="button" onClick={() => setIsCreateModalOpenCreateOrder(false)} className="px-6 py-3 font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">Hủy bỏ</button>
+                            <button type="submit" disabled={isSubmitting} className={`px-8 py-3 text-white font-bold rounded-xl shadow-lg transition-colors flex items-center gap-2 ${isSubmitting ? 'bg-slate-400' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'}`}>
+                                {isSubmitting ? 'Đang xử lý...' : 'Tạo đơn ngay'}
+                            </button>
+                        </div>
+                    </form>
                 </div>
             )}
 
+            {/* Modal Báo Cáo Thống Kê */}
             {isCreateModalOpenReport && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
-                    {/* Bỏ nội dung Form tạo đơn vào đây */}
-                    <div className="p-6">
-                        <main className="flex-1 overflow-y-auto p-10 bg-slate-50">
-                            <div className="max-w-6xl mx-auto space-y-8">
-
-                                <div className="flex justify-between items-end">
-                                    <div>
-                                        <h2 className="text-3xl font-black text-slate-800">Tổng quan hiệu suất</h2>
-                                        <p className="text-slate-500 mt-1">Dữ liệu được cập nhật theo thời gian thực (Real-time).</p>
-                                    </div>
-                                    <select
-                                        className="px-4 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-700 shadow-sm outline-none focus:border-blue-500">
-                                        <option>Hôm nay</option>
-                                        <option>7 ngày qua</option>
-                                        <option>Tháng này</option>
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-4 gap-6">
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div
-                                                className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center text-xl">
-                                                📦</div>
-                                            <span className="px-2.5 py-1 bg-green-50 text-green-600 text-xs font-bold rounded-full">+12%</span>
-                                        </div>
-                                        <p className="text-slate-500 font-medium text-sm">Tổng đơn hàng</p>
-                                        <p className="text-3xl font-black text-slate-800 mt-1">1,284</p>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div
-                                                className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center text-xl">
-                                                ✅</div>
-                                            <span className="px-2.5 py-1 bg-green-50 text-green-600 text-xs font-bold rounded-full">+5.2%</span>
-                                        </div>
-                                        <p className="text-slate-500 font-medium text-sm">Tỷ lệ thành công</p>
-                                        <p className="text-3xl font-black text-slate-800 mt-1">98.5%</p>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div
-                                                className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center text-xl">
-                                                🛵</div>
-                                        </div>
-                                        <p className="text-slate-500 font-medium text-sm">Tài xế đang chạy</p>
-                                        <p className="text-3xl font-black text-slate-800 mt-1">24 <span
-                                            className="text-base text-slate-400 font-medium">/ 30</span></p>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div
-                                                className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
-                                                💰</div>
-                                            <span className="px-2.5 py-1 bg-green-50 text-green-600 text-xs font-bold rounded-full">+8%</span>
-                                        </div>
-                                        <p className="text-slate-500 font-medium text-sm">Tổng thu COD</p>
-                                        <p className="text-3xl font-black text-slate-800 mt-1">15.4M</p>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-6">
-                                    <div className="col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                        <h3 className="font-bold text-slate-800 mb-6">Đơn hàng theo ngày</h3>
-                                        <div className="h-64 flex items-end justify-between gap-4">
-                                            <div className="w-full bg-blue-100 rounded-t-lg h-[40%] relative hover:bg-blue-200 transition-all">
-                                                <span
-                                                    className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-500">40</span>
-                                            </div>
-                                            <div className="w-full bg-blue-100 rounded-t-lg h-[60%] relative hover:bg-blue-200 transition-all">
-                                                <span
-                                                    className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-500">60</span>
-                                            </div>
-                                            <div className="w-full bg-blue-500 rounded-t-lg h-[90%] relative shadow-lg shadow-blue-200"><span
-                                                className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-blue-600">90</span>
-                                            </div>
-                                            <div className="w-full bg-blue-100 rounded-t-lg h-[50%] relative hover:bg-blue-200 transition-all">
-                                                <span
-                                                    className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-500">50</span>
-                                            </div>
-                                            <div className="w-full bg-blue-100 rounded-t-lg h-[70%] relative hover:bg-blue-200 transition-all">
-                                                <span
-                                                    className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-500">70</span>
-                                            </div>
-                                            <div className="w-full bg-blue-100 rounded-t-lg h-[80%] relative hover:bg-blue-200 transition-all">
-                                                <span
-                                                    className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-500">80</span>
-                                            </div>
-                                            <div className="w-full bg-blue-100 rounded-t-lg h-[100%] relative hover:bg-blue-200 transition-all">
-                                                <span
-                                                    className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-500">100</span>
-                                            </div>
-                                        </div>
-                                        <div
-                                            className="flex justify-between mt-4 border-t border-slate-100 pt-3 text-xs font-medium text-slate-400">
-                                            <span>T2</span><span>T3</span><span className="text-blue-600 font-bold">T4
-                                                (Nay)</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
-                                        <h3 className="font-bold text-slate-800 mb-6">Trạng thái đơn hàng</h3>
-                                        <div className="flex-1 flex items-center justify-center">
-                                            <div
-                                                className="w-48 h-48 rounded-full border-[16px] border-slate-100 border-t-emerald-500 border-r-emerald-500 border-b-blue-500 relative flex items-center justify-center">
-                                                <div className="text-center">
-                                                    <p className="text-2xl font-black text-slate-800">100%</p>
-                                                    <p className="text-xs font-medium text-slate-500">Tổng</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="mt-6 space-y-3">
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span className="flex items-center gap-2 text-slate-600"><span
-                                                    className="w-3 h-3 rounded-full bg-emerald-500"></span> Thành công</span>
-                                                <span className="font-bold text-slate-800">65%</span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span className="flex items-center gap-2 text-slate-600"><span
-                                                    className="w-3 h-3 rounded-full bg-blue-500"></span> Đang xử lý</span>
-                                                <span className="font-bold text-slate-800">25%</span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span className="flex items-center gap-2 text-slate-600"><span
-                                                    className="w-3 h-3 rounded-full bg-red-500"></span> Thất bại</span>
-                                                <span className="font-bold text-slate-800">10%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-5xl bg-slate-50 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
+                    <div className="p-8 max-h-[85vh] overflow-y-auto">
+                        <div className="flex justify-between items-end mb-8">
+                            <div>
+                                <h2 className="text-3xl font-black text-slate-800">Tổng quan hiệu suất</h2>
+                                <p className="text-slate-500 mt-1">Dữ liệu được cập nhật theo thời gian thực (Real-time).</p>
                             </div>
-                        </main>
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsCreateModalOpenReport(false)} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg">Hủy</button>
+                            <button onClick={() => setIsCreateModalOpenReport(false)} className="px-5 py-2 text-slate-600 bg-slate-200 hover:bg-slate-300 font-bold rounded-lg transition-colors">
+                                Đóng báo cáo
+                            </button>
+                        </div>
+
+                        {/* Khối thẻ dữ liệu thật */}
+                        <div className="grid grid-cols-4 gap-6 mb-8">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                <div className="w-12 h-12 mb-4 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center text-2xl">📦</div>
+                                <p className="text-slate-500 font-medium text-sm">Tổng đơn hàng hệ thống</p>
+                                <p className="text-4xl font-black text-slate-800 mt-1">{totalOrders}</p>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                <div className="w-12 h-12 mb-4 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center text-2xl">✅</div>
+                                <p className="text-slate-500 font-medium text-sm">Tỷ lệ giao thành công</p>
+                                <p className="text-4xl font-black text-slate-800 mt-1">{successRate}%</p>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                <div className="w-12 h-12 mb-4 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center text-2xl">🛵</div>
+                                <p className="text-slate-500 font-medium text-sm">Tài xế đang Online</p>
+                                <p className="text-4xl font-black text-slate-800 mt-1">{activeDriversCount}</p>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                <div className="w-12 h-12 mb-4 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-2xl">💰</div>
+                                <p className="text-slate-500 font-medium text-sm">Tổng thu COD</p>
+                                <p className="text-3xl font-black text-slate-800 mt-1">{formattedCOD}</p>
+                            </div>
+                        </div>
+
+                        {/* Biểu đồ tròn trạng thái đơn (Minh họa CSS dựa trên tỉ lệ thật) */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                            <h3 className="font-bold text-slate-800 mb-6">Trạng thái xử lý</h3>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center text-sm border-b pb-2">
+                                    <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-4 h-4 rounded-full bg-emerald-500"></span> Thành công (Completed)</span>
+                                    <span className="font-black text-slate-800">{completedOrders} Đơn</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm border-b pb-2">
+                                    <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-4 h-4 rounded-full bg-blue-500"></span> Đang giao (Delivering)</span>
+                                    <span className="font-black text-slate-800">{orders.filter((o: any) => o.status === 'delivering').length} Đơn</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm border-b pb-2">
+                                    <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-4 h-4 rounded-full bg-slate-400"></span> Chờ gán đơn (Pending)</span>
+                                    <span className="font-black text-slate-800">{orders.filter((o: any) => o.status === 'pending').length} Đơn</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-4 h-4 rounded-full bg-red-500"></span> Hủy/Thất bại (Canceled/Failed)</span>
+                                    <span className="font-black text-slate-800">{orders.filter((o: any) => o.status === 'failed' || o.status === 'canceled').length} Đơn</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
