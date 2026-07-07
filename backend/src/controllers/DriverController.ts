@@ -32,6 +32,20 @@ export class DriverController {
                 await redisClient.zrem('drivers:locations', driverId.toString()); // Xóa tọa độ khỏi Map
             }
 
+            try {
+                const io = (global as any).io;
+                if (io) {
+                    io.emit('DRIVER_STATUS_UPDATE', {
+                        driverId,
+                        status: is_online ? 'idle' : 'offline',
+                        is_online,
+                        active_order_id: null
+                    });
+                }
+            } catch (error) {
+                console.error('Lỗi khi phát tín hiệu trạng thái tài xế:', error);
+            }
+
             return sendResponse(res, 200, { is_online }, "Đã thay đổi trạng thái hoạt động");
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);

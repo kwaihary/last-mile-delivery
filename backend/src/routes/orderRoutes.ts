@@ -15,6 +15,7 @@ router.post('/:id/complete', verifyToken, OrderController.completeOrder);
 router.post('/:id/locations', verifyToken, OrderController.updateLocation);
 
 // Khách hàng cuối
+router.get('/track/:token', OrderController.trackOrderByToken);
 router.get('/:id/route', OrderController.getRouteTracking);
 
 export default router;
