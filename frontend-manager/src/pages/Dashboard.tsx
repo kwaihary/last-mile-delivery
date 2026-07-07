@@ -125,18 +125,53 @@ const Dashboard = () => {
         }
     };
 
+    // Lấy danh sách tài xế đang trực tuyến từ Backend (PostgreSQL + Redis GEO)
+    // Hydrate driversData ngay khi mount để đếm + hiển thị lên LiveMap
+    const fetchOnlineDrivers = async () => {
+        try {
+            const res = await api.get('/users/drivers/online');
+            const list: any[] = res.data?.data || [];
+
+            setDriversData((prev) => {
+                const next = { ...prev };
+                // Đồng bộ state từ backend: thêm/cập nhật các driver đang online
+                list.forEach((d) => {
+                    next[String(d.id)] = {
+                        lat: d.lat,
+                        lng: d.lng,
+                        status: d.status,
+                        active_order_id: d.active_order_id ?? null,
+                        full_name: d.full_name,
+                        vehicle_type: d.vehicle_type,
+                        license_plate: d.license_plate
+                    };
+                });
+                return next;
+            });
+        } catch (error) {
+            console.error("Lỗi lấy danh sách tài xế online:", error);
+        }
+    };
+
     useEffect(() => {
         fetchOrders();
+        fetchOnlineDrivers();
 
         // Đảm bảo sử dụng token 'accessToken' như khi đăng nhập
         const socket: Socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
             query: { token: localStorage.getItem('accessToken') }
         });
 
+        // Đồng bộ định kỳ danh sách tài xế online mỗi 10s (phòng trường hợp socket bị miss)
+        const refreshInterval = setInterval(() => {
+            fetchOnlineDrivers();
+        }, 10000);
+
         socket.on('LOCATION_UPDATE', (data) => {
             setDriversData(prev => ({
                 ...prev,
                 [data.driverId]: {
+                    ...(prev[data.driverId] || {}),
                     lat: data.lat,
                     lng: data.lng,
                     status: data.status,
@@ -151,6 +186,7 @@ const Dashboard = () => {
                     return {
                         ...prev,
                         [data.driverId]: {
+                            ...(prev[data.driverId] || {}),
                             lat: prev[data.driverId]?.lat ?? 10.762622,
                             lng: prev[data.driverId]?.lng ?? 106.660172,
                             status: data.status || 'idle',
@@ -159,6 +195,7 @@ const Dashboard = () => {
                     };
                 }
 
+                // Driver offline -> xóa khỏi danh sách
                 const next = { ...prev };
                 delete next[data.driverId];
                 return next;
@@ -167,6 +204,7 @@ const Dashboard = () => {
 
         return () => {
             socket.disconnect();
+            clearInterval(refreshInterval);
         };
     }, []);
 

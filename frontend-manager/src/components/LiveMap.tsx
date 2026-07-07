@@ -28,7 +28,8 @@ const RoutingControl = ({ origin, destination }: { origin: L.LatLngExpression; d
             waypoints: [L.latLng(origin), L.latLng(destination)],
             routeWhileDragging: false,
             addWaypoints: false,
-            language: 'vi',
+            // Bỏ `language: 'vi'` vì leaflet-routing-machine không có localization cho tiếng Việt
+            // (mặc định là 'en' — đã được bundle sẵn trong plugin)
             showAlternatives: false,
             lineOptions: {
                 styles: [{ color: '#3b82f6', opacity: 0.6, weight: 5 }]
@@ -75,7 +76,10 @@ const LiveMap: React.FC<LiveMapProps> = ({ driversData, ordersData }) => {
         }
 
         setRoutePoints(prev => {
-            const next = [...prev, { lat: activeDriverRoute.origin[0] as number, lng: activeDriverRoute.origin[1] as number }];
+            const origin = activeDriverRoute.origin;
+            const originLat = Array.isArray(origin) ? (origin as any)[0] : (origin as any).lat;
+            const originLng = Array.isArray(origin) ? (origin as any)[1] : (origin as any).lng;
+            const next = [...prev, { lat: originLat, lng: originLng }];
             return next.slice(-50);
         });
         setRoutingDestination({ lat: activeDriverRoute.order.latitude, lng: activeDriverRoute.order.longitude });

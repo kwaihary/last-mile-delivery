@@ -14,4 +14,7 @@ router.get('/me', verifyToken, AuthController.getMe);
 // Manager lấy danh sách tài xế để chọn gán đơn
 router.get('/drivers', verifyToken, isManager, UserController.getDrivers);
 
+// Manager lấy danh sách tài xế đang trực tuyến (kèm vị trí GPS từ Redis)
+router.get('/drivers/online', verifyToken, isManager, UserController.getOnlineDrivers);
+
 export default router;

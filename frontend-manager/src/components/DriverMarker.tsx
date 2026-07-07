@@ -21,12 +21,19 @@ const driverIconByStatus = (status: string) => {
 };
 
 const DriverMarker: React.FC<DriverMarkerProps> = ({ driverId, position, status, activeOrderId }) => {
-    const smoothLocation = useInterpolation(position, 10000);
+    // Leaflet LatLngExpression có thể là tuple [lat, lng] hoặc LatLng object.
+    // useInterpolation yêu cầu Coordinate — chuẩn hóa về { lat, lng }
+    const targetCoord: { lat: number; lng: number } = Array.isArray(position)
+        ? { lat: (position as any)[0], lng: (position as any)[1] }
+        : { lat: (position as any).lat, lng: (position as any).lng };
+
+    const smoothLocation = useInterpolation(targetCoord, 10000);
+    const positionTuple: [number, number] = [smoothLocation.lat, smoothLocation.lng];
 
     const statusText = status === 'delivering' ? 'Đang giao' : status === 'idle' ? 'Rảnh' : status;
 
     return (
-        <Marker position={smoothLocation} icon={driverIconByStatus(status)}>
+        <Marker position={positionTuple} icon={driverIconByStatus(status)}>
             <Popup>
                 <div className="text-slate-800">
                     <p className="font-bold text-sm">Tài xế #{driverId}</p>
