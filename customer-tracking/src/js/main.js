@@ -31,6 +31,14 @@ let mapInitialized = false;
 let routePolyline = null;
 let driverMarker = null;
 let destinationMarker = null;
+let traveledDistanceKm = 0;
+let routePoints = []; // Store all route points for full path display
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 3000;
+let isRetrying = false;
+let retryCount = 0;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 function setText(el, value) {
@@ -48,6 +56,18 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
     Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calculateTraveledDistance() {
+  if (routePoints.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < routePoints.length; i++) {
+    total += haversineMeters(
+      routePoints[i-1].lat, routePoints[i-1].lng,
+      routePoints[i].lat, routePoints[i].lng
+    );
+  }
+  return total / 1000; // Convert to km
 }
 
 async function fetchOsrmEta(lat1, lng1, lat2, lng2) {
@@ -124,7 +144,15 @@ function updateDriverPosition(lat, lng, addToRoute = true) {
     const last = latlngs[latlngs.length - 1];
     if (!last || last.lat !== lat || last.lng !== lng) {
       latlngs.push([lat, lng]);
-      routePolyline.setLatLngs(latlngs.slice(-100));
+      // Keep only last 200 points to avoid memory issues but show full path
+      routePolyline.setLatLngs(latlngs.slice(-200));
+      
+      // Track route points for distance calculation
+      routePoints.push({ lat, lng });
+      
+      // Update traveled distance display
+      traveledDistanceKm = calculateTraveledDistance();
+      updateTraveledDistanceDisplay();
     }
   }
 
@@ -191,24 +219,69 @@ function updateEta(durationSeconds, distanceMeters) {
   }
 }
 
-// ── Order loading ────────────────────────────────────────────────────────────
+function updateTraveledDistanceDisplay() {
+  const traveledEl = document.getElementById('traveled-distance');
+  if (traveledEl) {
+    traveledEl.textContent = traveledDistanceKm.toFixed(1) + ' km';
+  }
+}
+
+// ── Order loading with retry ────────────────────────────────────────────────
 async function loadOrder() {
   const apiBase = `${location.protocol}//${location.hostname}${
     location.port && location.port !== '80' && location.port !== '443' ? ':' + location.port : ''
   }/api`;
 
-  const res = await fetch(`${apiBase}/orders/track/${encodeURIComponent(token)}`);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Không tìm thấy đơn hàng (${res.status})`);
-  }
+  let lastError = null;
+  
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Try to load from cache first on retry
+      if (attempt > 0 && localStorage.getItem('ct_order_cache_' + token)) {
+        try {
+          const cached = JSON.parse(localStorage.getItem('ct_order_cache_' + token));
+          if (cached && Date.now() - cached.timestamp < 60000) { // Cache valid for 1 minute
+            console.log('[Tracking] Using cached order data');
+            return cached.data;
+          }
+        } catch {}
+      }
+      
+      const res = await fetch(`${apiBase}/orders/track/${encodeURIComponent(token)}`, {
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Không tìm thấy đơn hàng (${res.status})`);
+      }
 
-  const payload = await res.json();
-  if (!payload?.success || !payload?.data) {
-    throw new Error('Dữ liệu đơn hàng không hợp lệ');
-  }
+      const payload = await res.json();
+      if (!payload?.success || !payload?.data) {
+        throw new Error('Dữ liệu đơn hàng không hợp lệ');
+      }
+      
+      // Cache the successful response
+      try {
+        localStorage.setItem('ct_order_cache_' + token, JSON.stringify({
+          data: payload.data,
+          timestamp: Date.now()
+        }));
+      } catch {}
 
-  return payload.data;
+      return payload.data;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[Tracking] Load attempt ${attempt + 1} failed:`, err.message);
+      
+      if (attempt < MAX_RETRIES) {
+        updateConnectionStatus('connecting');
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+      }
+    }
+  }
+  
+  throw lastError || new Error('Không thể tải đơn hàng sau nhiều lần thử');
 }
 
 function renderOrder(order) {
@@ -253,11 +326,29 @@ function renderOrder(order) {
     setDestination(destLat, destLng);
   }
 
-  // Draw route history from initial data
+  // Draw route history from initial data (FULL route from backend)
   if (Array.isArray(order.route) && order.route.length > 0) {
+    routePoints = []; // Reset route points
     order.route.forEach((p, i) => {
-      updateDriverPosition(Number(p.lat), Number(p.lng), i < order.route.length - 1);
+      if (p.lat && p.lng) {
+        routePoints.push({ lat: Number(p.lat), lng: Number(p.lng) });
+        updateDriverPosition(Number(p.lat), Number(p.lng), i < order.route.length - 1);
+      }
     });
+    
+    // Recalculate traveled distance
+    traveledDistanceKm = calculateTraveledDistance();
+    updateTraveledDistanceDisplay();
+    
+    // Draw full polyline from route history
+    if (routePolyline && routePoints.length > 0) {
+      routePolyline.setLatLngs(routePoints.map(p => [p.lat, p.lng]));
+    }
+  }
+  
+  // Update current driver position if available
+  if (order.current_lat != null && order.current_lng != null) {
+    updateDriverPosition(Number(order.current_lat), Number(order.current_lng), false);
   }
 
   // Update ETA from initial position
@@ -374,6 +465,9 @@ async function init() {
           <div style="font-size:56px;margin-bottom:16px;">⚠️</div>
           <h1 style="font-size:18px;font-weight:800;margin-bottom:8px;color:#0f172a;">Không thể tải đơn hàng</h1>
           <p style="font-size:13px;color:#64748b;">${err.message}</p>
+          <button onclick="location.reload()" style="margin-top:16px;padding:12px 24px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600;">
+            Thử lại
+          </button>
         </div>
       </div>`;
   }

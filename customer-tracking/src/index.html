@@ -23,8 +23,16 @@
           <span>Đang tải thông tin...</span>
         </div>
         <div class="eta-content" id="eta-content" style="display:none">
-          <p class="eta-label" id="eta-label">Dự kiến giao hàng trong</p>
-          <p class="eta-value"><span id="eta-minutes">--</span> <span class="eta-unit">Phút</span></p>
+          <div class="eta-row">
+            <div class="eta-main">
+              <p class="eta-label" id="eta-label">Dự kiến giao hàng trong</p>
+              <p class="eta-value"><span id="eta-minutes">--</span> <span class="eta-unit">Phút</span></p>
+            </div>
+            <div class="eta-traveled">
+              <p class="traveled-label">Đã đi</p>
+              <p class="traveled-value"><span id="traveled-distance">0.0</span> km</p>
+            </div>
+          </div>
           <div class="eta-progress"><div class="eta-progress-bar" id="eta-bar"></div></div>
         </div>
       </div>

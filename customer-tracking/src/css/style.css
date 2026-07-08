@@ -50,6 +50,17 @@ body {
   z-index: 400;
 }
 
+.eta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.eta-main {
+  text-align: left;
+  flex: 1;
+}
+
 .eta-label {
   margin: 0 0 6px;
   font-size: 12px;
@@ -73,6 +84,29 @@ body {
   font-weight: 500;
   color: #94a3b8;
   margin-left: 4px;
+}
+
+.eta-traveled {
+  text-align: right;
+  padding-left: 16px;
+  border-left: 2px solid #e2e8f0;
+  margin-left: 12px;
+}
+
+.traveled-label {
+  margin: 0 0 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.traveled-value {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #059669;
 }
 
 .eta-progress {

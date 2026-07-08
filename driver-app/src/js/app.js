@@ -203,7 +203,15 @@ async function handleLogin(email, password) {
     initializeSocket();
     initializeHome();
     showScreen('screen-home');
-    loadOrders();
+
+    // Không load trackingOrder khi vừa login - để map trống
+    AppState.trackingOrder = null;
+
+    // Load orders nhưng KHÔNG tự động track
+    loadOrders({ silent: true, autoTrack: false });
+
+    // Chuyển sang tab Map (không có card)
+    switchTab('map');
   } catch (error) {
     console.error('Login error:', error);
     if (errorEl) {
@@ -230,7 +238,7 @@ function openLogoutModal() {
 function performLogout() {
   // Tắt trực tuyến + ngắt socket
   if (AppState.isOnline) {
-    api.patch('/drivers/status', { isOnline: false, is_online: false }).catch(() => {});
+    api.patch('/drivers/status', { isOnline: false, is_online: false }).catch(() => { });
   }
   socketService.stopLocationSharing();
   socketService.disconnectDriverSocket();
@@ -389,6 +397,7 @@ async function loadOrders(opts = {}) {
 
     renderOrders();
 
+    // KHÔNG tự động track đơn khi autoTrack = false (ví dụ khi login)
     if (!autoTrack) return;
 
     // Xác định đơn đang active (pickup/delivering) - lấy đơn mới nhất
@@ -423,7 +432,7 @@ async function loadOrders(opts = {}) {
       // Đánh dấu pending để tránh vòng lặp
       AppState.isOnline = true;
       updateOnlineUI(true);
-      toggleOnlineStatus().catch(() => {});
+      toggleOnlineStatus().catch(() => { });
     }
   } catch (err) {
     console.error('Load orders error:', err);
@@ -481,9 +490,8 @@ function buildOrderCard(order) {
         <span class="order-line-icon">👤</span>
         <div class="order-line-content">
           <span class="order-line-key">Khách hàng</span>
-          <span class="order-line-val name">${escapeHtml(receiverName)}${
-            phone ? `<a class="order-line-val phone" href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a>` : ''
-          }</span>
+          <span class="order-line-val name">${escapeHtml(receiverName)}${phone ? `<a class="order-line-val phone" href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a>` : ''
+    }</span>
         </div>
       </div>
 
@@ -537,12 +545,18 @@ function onOrderCardClick(order) {
     return;
   }
 
+  // Chỉ cho phép xem lộ trình cho đơn ở trạng thái pickup hoặc delivering
+  if (!['pickup', 'delivering'].includes(order.status)) {
+    showToast('Chỉ có thể xem lộ trình cho đơn đang lấy hàng hoặc đang giao', 'warning');
+    return;
+  }
+
   AppState.trackingOrder = order;
   renderTrackingCard();
   switchTab('map');
 
   // Sau khi bản đồ đã render thì vẽ route (trong switchTab đã gọi renderRouteForOrder rồi)
-  showToast(`Đã mở lộ trình cho đơn #ORD-${order.id}`, 'info');
+  //showToast(`Đã mở lộ trình cho đơn #ORD-${order.id}`, 'info');
 }
 
 // =============================================================================
@@ -554,7 +568,9 @@ function renderTrackingCard() {
   const fab = $('btn-locate-driver');
   const order = AppState.trackingOrder;
 
-  if (!order || !['pickup', 'delivering', 'assigned'].includes(order.status)) {
+  // Hiển thị card khi có đơn đang theo dõi (trạng thái active: pickup/delivering)
+  // KHÔNG hiển thị card cho đơn ASSIGNED (chờ tiếp nhận)
+  if (!order || !['pickup', 'delivering'].includes(order.status)) {
     card?.classList.add('hidden');
     if (empty) empty.classList.remove('hidden');
     fab?.classList.remove('has-tracking');
@@ -586,32 +602,20 @@ function renderTrackingActions(order) {
   if (!wrap) return;
   wrap.innerHTML = '';
 
-  if (order.status === ORDER_STATUS.ASSIGNED) {
-    // Tiếp nhận đơn
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-primary';
-    btn.innerHTML = '✓ Tiếp nhận đơn';
-    btn.onclick = () => confirmStatusChange(order.id, ORDER_STATUS.PICKUP, {
-      title: 'Tiếp nhận đơn hàng?',
-      message: 'Bạn sẽ chuyển sang trạng thái "Đang lấy hàng". Hệ thống sẽ bắt đầu ghi nhận vị trí của bạn.',
-      okText: 'Tiếp nhận',
-      variant: 'success'
-    });
-    wrap.appendChild(btn);
-  } else if (order.status === ORDER_STATUS.PICKUP) {
-    // Đã lấy hàng
+  if (order.status === ORDER_STATUS.PICKUP) {
+    // Đã lấy hàng (chuyển sang delivering - SMS sẽ được gửi tự động từ backend)
     const btn = document.createElement('button');
     btn.className = 'btn btn-success';
-    btn.innerHTML = '📦 Lấy hàng thành công';
+    btn.innerHTML = '✓ Đã lấy hàng';
     btn.onclick = () => confirmStatusChange(order.id, ORDER_STATUS.DELIVERING, {
-      title: 'Xác nhận lấy hàng thành công?',
-      message: `Bạn đã nhận được hàng cho đơn #${order.id} và sẵn sàng giao đến khách hàng.`,
+      title: 'Xác nhận đã lấy hàng?',
+      message: `Bạn đã nhận được hàng cho đơn #${order.id} và sẵn sàng giao đến khách hàng. SMS tracking sẽ được gửi đến khách hàng.`,
       okText: 'Xác nhận',
       variant: 'success'
     });
     wrap.appendChild(btn);
   } else if (order.status === ORDER_STATUS.DELIVERING) {
-    // Hoàn thành đơn (bước 1) - Sau đó hiện thêm Hủy/Xác nhận
+    // Hoàn thành đơn (bước 1: hiện nút "Hoàn thành", bước 2: hiện "Chưa"/"Xác nhận")
     if (!wrap.dataset.step) wrap.dataset.step = 'main';
 
     if (wrap.dataset.step === 'main') {
@@ -624,6 +628,7 @@ function renderTrackingActions(order) {
       };
       wrap.appendChild(btnComplete);
     } else {
+      // Bước xác nhận: Chưa / Xác nhận
       const row = document.createElement('div');
       row.className = 'btn-row';
 
@@ -671,7 +676,7 @@ async function confirmStatusChange(orderId, nextStatus, confirmOpts) {
         AppState.isOnline = true;
         updateOnlineUI(true);
         // Best-effort, không block flow
-        toggleOnlineStatus().catch(() => {});
+        toggleOnlineStatus().catch(() => { });
       }
       socketService.startLocationSharing(orderId);
     }
@@ -698,6 +703,19 @@ async function confirmStatusChange(orderId, nextStatus, confirmOpts) {
 // PROOF SCREEN
 // =============================================================================
 let selectedImageFile = null;
+
+/**
+ * Chuyển đổi File ảnh sang chuỗi base64 (data URL) để gửi qua JSON body.
+ * Backend lưu image_url dạng text nên có thể nhận trực tiếp base64 string.
+ */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 function openProofScreen(order) {
   selectedImageFile = null;
@@ -751,12 +769,12 @@ async function submitProof(success = true) {
     }
 
     try {
-      // Upload qua POST /:id/complete (multipart) - API backend đã chuyển route sang POST
-      const formData = new FormData();
-      formData.append('image_url', selectedImageFile);
-      formData.append('driver_notes', notes);
-      // Backend mong đợi image_url, driver_notes trong body
-      await api.postForm(`/orders/${orderId}/complete`, formData);
+      // Chuyển ảnh sang base64 và gửi dạng JSON (backend không dùng multer/multipart)
+      const imageBase64 = await fileToBase64(selectedImageFile);
+      await api.post(`/orders/${orderId}/complete`, {
+        image_url: imageBase64,
+        driver_notes: notes
+      });
 
       // Dọn tracking
       socketService.stopLocationSharing();
@@ -865,13 +883,13 @@ function destroyMap() {
 function clearOrderLayers() {
   if (!AppState.map) return;
   AppState.destMarkers.forEach((m) => {
-    try { AppState.map.removeLayer(m); } catch {}
+    try { AppState.map.removeLayer(m); } catch { }
   });
   AppState.routeLayers.forEach((l) => {
-    try { AppState.map.removeLayer(l); } catch {}
+    try { AppState.map.removeLayer(l); } catch { }
   });
   AppState.pickupMarkers.forEach((m) => {
-    try { AppState.map.removeLayer(m); } catch {}
+    try { AppState.map.removeLayer(m); } catch { }
   });
   AppState.destMarkers = [];
   AppState.routeLayers = [];
@@ -1036,10 +1054,10 @@ function startWatchDriver() {
       setDriverMarker(ll);
       // Realtime send location
       if (AppState.trackingOrder && (AppState.trackingOrder.status === 'pickup' || AppState.trackingOrder.status === 'delivering')) {
-        api.post(`/orders/${AppState.trackingOrder.id}/locations`, { lat: ll[0], lng: ll[1] }).catch(() => {});
+        api.post(`/orders/${AppState.trackingOrder.id}/locations`, { lat: ll[0], lng: ll[1] }).catch(() => { });
       }
     },
-    () => {},
+    () => { },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
   );
 }
@@ -1096,6 +1114,7 @@ function showNewOrderModal(order) {
   const handleOk = async () => {
     cleanup();
     try {
+      // Khi tài xế tiếp nhận đơn mới từ modal, chuyển sang trạng thái pickup
       await api.patch(`/orders/${order.id}/status`, { status: ORDER_STATUS.PICKUP });
       showToast('Đã tiếp nhận đơn hàng!', 'success');
       socketService.joinOrderRoom(order.id);
@@ -1105,16 +1124,17 @@ function showNewOrderModal(order) {
         if (tg && !tg.checked) tg.checked = true;
         AppState.isOnline = true;
         updateOnlineUI(true);
-        toggleOnlineStatus().catch(() => {});
+        toggleOnlineStatus().catch(() => { });
       }
       socketService.startLocationSharing(order.id);
       // Tải lại danh sách silent để cập nhật order
       await loadOrders({ silent: true, autoTrack: true });
       const found = AppState.orders.find((o) => Number(o.id) === Number(order.id));
       if (found) {
+        // Đơn mới tiếp nhận sẽ ở trạng thái pickup, hiển thị card với nút "Đã lấy hàng"
         AppState.trackingOrder = found;
         renderTrackingCard();
-        // Chuyển sang tab map để tài xế thấy lộ trình luôn
+        // Chuyển sang tab map để tài xế thấy lộ trình và card đơn hàng
         switchTab('map');
       }
     } catch (e) {
@@ -1235,6 +1255,14 @@ function initializeEventListeners() {
   $('btn-locate-driver')?.addEventListener('click', () => {
     ensureMap();
     locateDriverOnMap(false);
+  });
+
+  // ============= Đóng tracking card (nút X)
+  $('btn-close-tracking')?.addEventListener('click', () => {
+    AppState.trackingOrder = null;
+    renderTrackingCard();
+    clearOrderLayers();
+    //showToast('Đã ẩn card đơn hàng', 'info');
   });
 
   // ============= Logout button

@@ -790,6 +790,10 @@ body {
 /* ==========================================================================
    MAP TAB
    ========================================================================== */
+#btn-locate-driver {
+  margin-bottom: 5rem; 
+}
+
 .tab-map-container {
   position: absolute;
   inset: 0;
@@ -832,6 +836,37 @@ body {
   margin-bottom: 10px;
   padding-bottom: 10px;
   border-bottom: 1px dashed var(--border);
+  gap: 8px;
+}
+
+.tracking-close-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--t-base);
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.tracking-close-btn:hover {
+  background: var(--bg-soft);
+  color: var(--text-main);
+}
+
+.tracking-close-btn:active {
+  transform: scale(0.92);
+}
+
+.tracking-close-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .tracking-label {

@@ -17,8 +17,18 @@ const Login: React.FC = () => {
                 password
             });
 
-            // Lấy token và lưu vào localStorage
-            const { token, user } = response.data.data;
+            // Backend trả về: { success: true, data: { token, user } }
+            const responseData = response.data;
+            if (!responseData.success || !responseData.data) {
+                throw new Error('Phản hồi không hợp lệ từ server');
+            }
+
+            const { token, user } = responseData.data;
+            
+            if (!token || !user) {
+                throw new Error('Thiếu token hoặc thông tin người dùng');
+            }
+
             localStorage.setItem('accessToken', token);
             localStorage.setItem('user', JSON.stringify(user));
 
@@ -29,9 +39,12 @@ const Login: React.FC = () => {
                 navigate('/dashboard');
             } else {
                 toast.error("Tài khoản này không có quyền truy cập quản lý.");
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('user');
             }
         } catch (error: any) {
-            toast.error(error.response?.data?.error || "Đăng nhập thất bại");
+            console.error('Login error:', error);
+            toast.error(error.response?.data?.error || error.message || "Đăng nhập thất bại");
         }
     };
 

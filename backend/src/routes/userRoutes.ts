@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { UserController } from '../controllers/UserController';
 import { AuthController } from '../controllers/AuthController';
+import { DriverController } from '../controllers/DriverController';
 import { verifyToken, isManager } from '../middlewares/authMiddleware'; 
 
 const router = Router();
@@ -16,5 +17,8 @@ router.get('/drivers', verifyToken, isManager, UserController.getDrivers);
 
 // Manager lấy danh sách tài xế đang trực tuyến (kèm vị trí GPS từ Redis)
 router.get('/drivers/online', verifyToken, isManager, UserController.getOnlineDrivers);
+
+// Manager lấy thống kê tất cả tài xế
+router.get('/drivers/stats', verifyToken, isManager, DriverController.getAllDriversStats);
 
 export default router;

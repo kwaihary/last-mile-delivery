@@ -6,7 +6,14 @@ const router = Router();
 
 // Điều phối viên
 router.post('/', verifyToken, isManager, OrderController.createOrder);
-router.get('/', verifyToken, isManager, OrderController.getAllOrders);
+// GET /api/orders (có filter)
+router.get('/', verifyToken, isManager, OrderController.getAllOrdersFiltered);
+// Stats endpoints
+router.get('/stats', verifyToken, isManager, OrderController.getOrderStats);
+router.get('/:id/route-history', verifyToken, isManager, OrderController.getRouteHistory);
+// Cancel order (Manager only)
+router.patch('/:id/cancel', verifyToken, isManager, OrderController.cancelOrder);
+// Assign order
 router.patch('/:id/assign', verifyToken, isManager, OrderController.assignOrder);
 
 // Tài xế

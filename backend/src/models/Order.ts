@@ -67,7 +67,7 @@ export class Order {
     driver: User;
 
     @OneToOne(() => DeliveryProof, (proof) => proof.order)
-    delivery_proofs: DeliveryProof[];
+    delivery_proof: DeliveryProof;
 
     @OneToMany(() => RouteHistory, (history) => history.order)
     route_histories: RouteHistory[];
