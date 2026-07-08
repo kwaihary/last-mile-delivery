@@ -78,7 +78,8 @@ app.get('/health', (req, res) => {
 // Serve /track → customer-tracking/src/index.html (static, no auth needed)
 // Note: /track/:token is handled by the static middleware too
 const customerTrackingPath = path.resolve(__dirname, '../../customer-tracking/src/index.html');
-app.get('/track', (req, res) => {
+// /track/:token cũng phải trả về cùng file HTML (token được đọc từ URL path ở phía client)
+app.get(['/track', '/track/:token'], (req, res) => {
     res.sendFile(customerTrackingPath, (err) => {
         if (err) {
             console.error('Không tìm thấy customer-tracking page:', err);

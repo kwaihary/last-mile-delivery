@@ -327,7 +327,7 @@ export class OrderController {
         try {
             const token = req.params.token as string;
 
-            const order = await orderRepo.findOne({ where: { tracking_token: token }, relations: { manager: true, driver: true } });
+            const order = await orderRepo.findOne({ where: { tracking_token: token }, relations: { manager: true, driver: { driver_profile: true } } });
             if (!order) {
                 return sendResponse(res, 404, null, '', 'Không tìm thấy đơn hàng');
             }

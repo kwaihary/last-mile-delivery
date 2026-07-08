@@ -29,6 +29,7 @@ let destLat = null;
 let destLng = null;
 let mapInitialized = false;
 let routePolyline = null;
+let routeGlow = null;
 let driverMarker = null;
 let destinationMarker = null;
 let traveledDistanceKm = 0;
@@ -86,6 +87,19 @@ async function fetchOsrmEta(lat1, lng1, lat2, lng2) {
 }
 
 // ── Map ────────────────────────────────────────────────────────────────────
+// Map là full-screen nên fitBounds cần padding riêng cho trên/dưới để marker
+// không bị che dưới ETA card (trên) và bottom card (dưới).
+function getMapFitOptions() {
+  const etaCard = document.querySelector('.eta-card');
+  const bottomCard = document.querySelector('.bottom-card');
+  const topPad = (etaCard?.offsetHeight || 90) + 70;
+  const bottomPad = (bottomCard?.offsetHeight || 150) + 30;
+  return {
+    paddingTopLeft: [40, topPad],
+    paddingBottomRight: [40, bottomPad],
+  };
+}
+
 function initMap() {
   if (mapInitialized) return;
 
@@ -98,34 +112,40 @@ function initMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
 
-  // Driver marker
+  // Driver marker — icon xe máy 🛵
   driverMarker = L.marker([10.762622, 106.660172], {
     icon: L.divIcon({
       className: 'driver-marker',
-      html: `<div class="driver-marker-inner">
-        <svg viewBox="0 0 24 24" width="26" height="26"><path fill="#4f46e5" d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
-      </div>`,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
+      html: `<div class="driver-marker-inner"><span>🛵</span></div>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
     }),
   }).addTo(map);
 
-  // Route polyline
-  routePolyline = L.polyline([], {
-    color: '#4f46e5',
-    weight: 5,
-    opacity: 0.7,
+  // Route glow (halo mờ phía dưới) + route chính
+  routeGlow = L.polyline([], {
+    color: '#2563eb',
+    weight: 10,
+    opacity: 0.18,
+    lineCap: 'round',
+    lineJoin: 'round',
   }).addTo(map);
 
-  // Destination marker
+  routePolyline = L.polyline([], {
+    color: '#2563eb',
+    weight: 5,
+    opacity: 0.9,
+    lineCap: 'round',
+    lineJoin: 'round',
+  }).addTo(map);
+
+  // Destination marker — icon vị trí 📍
   destinationMarker = L.marker([10.762622, 106.660172], {
     icon: L.divIcon({
       className: 'dest-marker',
-      html: `<div class="dest-marker-inner">
-        <svg viewBox="0 0 24 24" width="28" height="28"><path fill="#f43f5e" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
-      </div>`,
-      iconSize: [36, 36],
-      iconAnchor: [18, 36],
+      html: `<div class="dest-marker-inner"><span>📍</span></div>`,
+      iconSize: [40, 44],
+      iconAnchor: [20, 40],
     }),
   }).addTo(map);
 
@@ -145,7 +165,9 @@ function updateDriverPosition(lat, lng, addToRoute = true) {
     if (!last || last.lat !== lat || last.lng !== lng) {
       latlngs.push([lat, lng]);
       // Keep only last 200 points to avoid memory issues but show full path
-      routePolyline.setLatLngs(latlngs.slice(-200));
+      const trimmed = latlngs.slice(-200);
+      routePolyline.setLatLngs(trimmed);
+      routeGlow?.setLatLngs(trimmed);
       
       // Track route points for distance calculation
       routePoints.push({ lat, lng });
@@ -167,12 +189,14 @@ function setDestination(lat, lng) {
 
   if (routePolyline && driverLat !== null) {
     // Draw straight line as fallback (OSRM route will replace this)
-    routePolyline.setLatLngs([[driverLat, driverLng], [lat, lng]]);
+    const straight = [[driverLat, driverLng], [lat, lng]];
+    routePolyline.setLatLngs(straight);
+    routeGlow?.setLatLngs(straight);
   }
 
   window._ctMap?.fitBounds(
     L.latLngBounds([[lat, lng], [driverLat || lat, driverLng || lng]]),
-    { padding: [40, 40] }
+    getMapFitOptions()
   );
 }
 
@@ -187,8 +211,9 @@ async function loadOsrmRoute() {
 
     const coords = data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
     routePolyline?.setLatLngs(coords);
+    routeGlow?.setLatLngs(coords);
 
-    window._ctMap?.fitBounds(routePolyline?.getBounds(), { padding: [50, 50] });
+    window._ctMap?.fitBounds(routePolyline?.getBounds(), getMapFitOptions());
 
     // Update ETA
     updateEta(data.routes[0].duration, data.routes[0].distance);
@@ -203,27 +228,25 @@ function updateEta(durationSeconds, distanceMeters) {
 
   const minEl = document.getElementById('eta-minutes');
   const barEl = document.getElementById('eta-bar');
-  const labelEl = document.getElementById('eta-label');
   const loadingEl = document.getElementById('eta-loading');
   const contentEl = document.getElementById('eta-content');
 
   if (loadingEl) loadingEl.style.display = 'none';
   if (contentEl) contentEl.style.display = 'block';
   if (minEl) minEl.textContent = minutes;
-  if (labelEl) labelEl.textContent = `Dự kiến: ${km} km • ~${minutes} phút`;
 
-  // Animate progress bar
+  // Tiến độ dựa trên tỉ lệ quãng đường đã đi / tổng quãng đường
   if (barEl) {
-    const progress = Math.min(95, Math.max(5, 80));
+    const remainingKm = Number(km) || 0;
+    const total = traveledDistanceKm + remainingKm;
+    const progress = total > 0 ? Math.min(96, Math.max(4, (traveledDistanceKm / total) * 100)) : 5;
     barEl.style.width = `${progress}%`;
   }
 }
 
 function updateTraveledDistanceDisplay() {
-  const traveledEl = document.getElementById('traveled-distance');
-  if (traveledEl) {
-    traveledEl.textContent = traveledDistanceKm.toFixed(1) + ' km';
-  }
+  // Quãng đường đã đi không còn hiển thị riêng trong giao diện tối giản,
+  // nhưng vẫn được dùng để tính tiến độ progress bar trong updateEta().
 }
 
 // ── Order loading with retry ────────────────────────────────────────────────
@@ -308,56 +331,40 @@ function renderOrder(order) {
     }
   }
 
-  // Store destination
-  if (Number.isFinite(Number(order.latitude)) && Number.isFinite(Number(order.longitude))) {
-    destLat = Number(order.latitude);
-    destLng = Number(order.longitude);
-    if (mapInitialized) {
-      setDestination(destLat, destLng);
-    }
-  }
-
-  // Initialize map once
+  // Khởi tạo map trước để marker có thể được đặt vị trí
   if (!mapInitialized) {
     initMap();
   }
 
-  if (destLat != null && destLng != null) {
+  // 1. Xác định vị trí hiện tại của tài xế TRƯỚC: ưu tiên current_lat/current_lng
+  // từ backend, fallback về điểm cuối của route history (route có thể chỉ là
+  // GPS dao động tại chỗ khi tài xế chưa di chuyển nhiều).
+  if (order.current_lat != null && order.current_lng != null) {
+    updateDriverPosition(Number(order.current_lat), Number(order.current_lng), false);
+  } else if (Array.isArray(order.route) && order.route.length > 0) {
+    const last = order.route[order.route.length - 1];
+    if (last.lat && last.lng) {
+      updateDriverPosition(Number(last.lat), Number(last.lng), false);
+    }
+  }
+
+  // 2. Đặt điểm giao hàng SAU khi đã có vị trí tài xế, để đường thẳng fallback
+  // được vẽ đúng ngay lập tức (không bị dồn về 1 điểm do driverLat còn null).
+  if (Number.isFinite(Number(order.latitude)) && Number.isFinite(Number(order.longitude))) {
+    destLat = Number(order.latitude);
+    destLng = Number(order.longitude);
     setDestination(destLat, destLng);
   }
 
-  // Draw route history from initial data (FULL route from backend)
-  if (Array.isArray(order.route) && order.route.length > 0) {
-    routePoints = []; // Reset route points
-    order.route.forEach((p, i) => {
-      if (p.lat && p.lng) {
-        routePoints.push({ lat: Number(p.lat), lng: Number(p.lng) });
-        updateDriverPosition(Number(p.lat), Number(p.lng), i < order.route.length - 1);
-      }
-    });
-    
-    // Recalculate traveled distance
-    traveledDistanceKm = calculateTraveledDistance();
-    updateTraveledDistanceDisplay();
-    
-    // Draw full polyline from route history
-    if (routePolyline && routePoints.length > 0) {
-      routePolyline.setLatLngs(routePoints.map(p => [p.lat, p.lng]));
-    }
-  }
-  
-  // Update current driver position if available
-  if (order.current_lat != null && order.current_lng != null) {
-    updateDriverPosition(Number(order.current_lat), Number(order.current_lng), false);
-  }
-
-  // Update ETA from initial position
-  if (order.latitude && order.longitude && driverLat != null) {
+  // 3. Vẽ lộ trình thực tế theo đường đi (OSRM) từ tài xế đến điểm giao hàng,
+  // thay thế đường thẳng fallback, và cập nhật ETA theo lộ trình thật.
+  if (driverLat != null && destLat != null) {
+    loadOsrmRoute().catch(() => {});
     fetchOsrmEta(driverLat, driverLng, destLat, destLng).then(result => {
       if (result) {
         updateEta(result.durationSeconds, result.distanceMeters);
       } else {
-        // Fallback to Haversine
+        // Fallback to Haversine nếu OSRM không phản hồi
         const meters = haversineMeters(driverLat, driverLng, destLat, destLng);
         const minutes = Math.round((meters / 1000) / 25 * 60);
         updateEta(minutes * 60, meters);
@@ -365,33 +372,17 @@ function renderOrder(order) {
     });
   }
 
-  // Status badge in header
+  // Status badge
   const statusBadge = document.getElementById('order-status-badge');
   if (statusBadge) {
     statusBadge.textContent = STATUS_LABELS[order.status] || order.status;
     statusBadge.className = `order-status-badge status-${order.status}`;
   }
 
-  updateStatusSteps(order.status);
+  handleTerminalStatus(order.status);
 }
 
-function updateStatusSteps(status) {
-  const steps = document.querySelectorAll('.step-item');
-  const currentIdx = STATUS_ORDER.indexOf(status);
-
-  steps.forEach((step, idx) => {
-    const stepStatus = step.dataset.status;
-
-    step.classList.remove('completed', 'active', 'failed');
-
-    if (['failed', 'canceled'].includes(status) && stepStatus === status) {
-      step.classList.add('failed');
-    } else if (currentIdx >= 0) {
-      if (idx < currentIdx) step.classList.add('completed');
-      else if (idx === currentIdx) step.classList.add('active');
-    }
-  });
-
+function handleTerminalStatus(status) {
   // Handle completed/failed globally
   if (status === 'completed' || status === 'failed') {
     const loadingEl = document.getElementById('eta-loading');
@@ -414,23 +405,26 @@ function onSocketMessage(type, data) {
     if (Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
       updateDriverPosition(data.lat, data.lng, true);
 
-      // Fetch updated OSRM route
+      // Vẽ lại lộ trình thực tế (OSRM) từ vị trí mới của tài xế đến điểm giao hàng
       if (destLat != null && destLng != null) {
-        fetchOsrmEta(data.lat, data.lng, destLat, destLng).then(result => {
-          if (result) updateEta(result.durationSeconds, result.distanceMeters);
-        });
+        loadOsrmRoute().catch(() => {});
       }
     }
   }
 
   if (type === 'status') {
     currentStatus = data.status;
-    updateStatusSteps(data.status);
+    const statusBadge = document.getElementById('order-status-badge');
+    if (statusBadge) {
+      statusBadge.textContent = STATUS_LABELS[data.status] || data.status;
+      statusBadge.className = `order-status-badge status-${data.status}`;
+    }
+    handleTerminalStatus(data.status);
 
     if (data.status === 'completed') {
       const map = window._ctMap;
       if (map && destLat != null && destLng != null) {
-        map.fitBounds(L.latLngBounds([[destLat, destLng]]), { padding: [50, 50] });
+        map.setView([destLat, destLng], 16, { animate: true });
       }
     }
   }
@@ -438,8 +432,11 @@ function onSocketMessage(type, data) {
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function init() {
+  // Ưu tiên đọc token từ URL path (/track/:token — format link SMS gửi cho khách)
+  // Fallback sang query string (?token=...) để tương thích ngược
+  const pathMatch = location.pathname.match(/\/track\/([^/]+)\/?$/);
   const params = new URLSearchParams(location.search);
-  token = params.get('token');
+  token = pathMatch?.[1] || params.get('token');
 
   if (!token) {
     document.body.innerHTML = `

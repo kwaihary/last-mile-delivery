@@ -1,15 +1,24 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  root: 'src',           // Vite sẽ tìm index.html trong src/
   server: {
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:5000',
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
       '/socket.io': {
         target: 'http://localhost:5000',
-        ws: true
+        ws: true,
+        changeOrigin: true,
       }
     }
-  }
+  },
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+  },
 });

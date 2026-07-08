@@ -98,19 +98,10 @@ function disconnectTrackingSocket() {
 
 function updateConnectionStatus(status) {
   const dot = document.getElementById('connection-dot');
-  const text = document.getElementById('connection-text');
-  if (!dot || !text) return;
+  if (!dot) return;
 
-  const states = {
-    online:     { cls: 'online',     label: 'Đã kết nối' },
-    offline:    { cls: 'offline',    label: 'Mất kết nối' },
-    connecting: { cls: 'connecting', label: 'Đang kết nối...' },
-    error:      { cls: 'error',      label: 'Lỗi kết nối' },
-  };
-
-  const s = states[status] || states.offline;
-  dot.className = `connection-dot ${s.cls}`;
-  text.textContent = s.label;
+  const states = ['online', 'offline', 'connecting', 'error'];
+  dot.className = `connection-dot ${states.includes(status) ? status : 'offline'}`;
 }
 
 window.CustomerTrackingSocket = {

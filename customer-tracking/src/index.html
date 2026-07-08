@@ -13,82 +13,43 @@
 </head>
 <body>
   <div class="phone-frame">
+    <!-- MAP (nền chính, chiếm toàn bộ màn hình) -->
     <div class="map-area">
       <div id="map"></div>
 
-      <!-- ETA Card -->
+      <!-- Chấm kết nối realtime, nổi nhẹ góc trên phải -->
+      <span id="connection-dot" class="connection-dot offline" title="Trạng thái kết nối"></span>
+
+      <!-- Card ETA nổi trên map -->
       <div class="eta-card" id="eta-card">
         <div class="eta-loading" id="eta-loading">
           <div class="eta-loading-spinner"></div>
           <span>Đang tải thông tin...</span>
         </div>
         <div class="eta-content" id="eta-content" style="display:none">
-          <div class="eta-row">
-            <div class="eta-main">
-              <p class="eta-label" id="eta-label">Dự kiến giao hàng trong</p>
-              <p class="eta-value"><span id="eta-minutes">--</span> <span class="eta-unit">Phút</span></p>
-            </div>
-            <div class="eta-traveled">
-              <p class="traveled-label">Đã đi</p>
-              <p class="traveled-value"><span id="traveled-distance">0.0</span> km</p>
-            </div>
-          </div>
+          <h2 class="eta-title" id="eta-label">Dự kiến giao hàng trong</h2>
+          <p class="eta-value"><span id="eta-minutes">--</span> <span class="eta-unit">Phút</span></p>
           <div class="eta-progress"><div class="eta-progress-bar" id="eta-bar"></div></div>
         </div>
       </div>
-
-      <!-- Connection status badge -->
-      <div id="connection-badge" class="connection-badge">
-        <span id="connection-dot" class="connection-dot offline"></span>
-        <span id="connection-text">Đang kết nối...</span>
-      </div>
     </div>
 
-    <div class="bottom-sheet">
+    <!-- Card thông tin đơn hàng, nổi ở dưới cùng -->
+    <div class="bottom-card">
       <div class="sheet-handle"></div>
 
-      <div class="order-header">
-        <p class="order-badge" id="order-id">#ORD-...</p>
-        <span class="order-status-badge" id="order-status-badge"></span>
+      <div class="order-row">
+        <p class="order-label" id="order-id">Đơn hàng #...</p>
+        <span class="order-status-badge" id="order-status-badge">Đang tải</span>
       </div>
 
-      <div class="driver-card">
+      <div class="driver-row">
         <div class="driver-avatar">
           <img id="driver-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Driver" alt="Driver">
         </div>
         <div class="driver-info">
-          <h3 id="driver-name" class="driver-name">Đang tải...</h3>
-          <p id="driver-vehicle" class="driver-vehicle">--</p>
-        </div>
-      </div>
-
-      <div class="status-steps" id="status-steps">
-        <div class="step-item" data-status="pending">
-          <div class="step-dot"></div>
-          <div class="step-info">
-            <span class="step-title">Chờ xác nhận</span>
-          </div>
-        </div>
-        <div class="step-item" data-status="pickup">
-          <div class="step-line"></div>
-          <div class="step-dot"></div>
-          <div class="step-info">
-            <span class="step-title">Đang lấy hàng</span>
-          </div>
-        </div>
-        <div class="step-item" data-status="delivering">
-          <div class="step-line"></div>
-          <div class="step-dot"></div>
-          <div class="step-info">
-            <span class="step-title">Đang giao hàng</span>
-          </div>
-        </div>
-        <div class="step-item" data-status="completed">
-          <div class="step-line"></div>
-          <div class="step-dot"></div>
-          <div class="step-info">
-            <span class="step-title">Giao thành công</span>
-          </div>
+          <h3 id="driver-name">Đang tải...</h3>
+          <p id="driver-vehicle">--</p>
         </div>
       </div>
     </div>
@@ -97,7 +58,6 @@
   <!-- Scripts -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="./js/map.js"></script>
   <script src="./js/socket.js"></script>
   <script src="./js/main.js"></script>
 </body>
