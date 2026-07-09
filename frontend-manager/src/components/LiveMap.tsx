@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { GoogleMap, useJsApiLoader, DirectionsRenderer } from '@react-google-maps/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import 'leaflet-routing-machine';
 import DriverMarker from './DriverMarker';
 
-const containerStyle = {
-    width: '100%',
-    height: '100%'
-};
-
-// Đặt trung tâm mặc định tại TP.HCM
 const defaultCenter = { lat: 10.762622, lng: 106.660172 };
 
 interface LiveMapProps {
@@ -15,77 +12,158 @@ interface LiveMapProps {
     ordersData: any[];
 }
 
+interface RoutePoint {
+    lat: number;
+    lng: number;
+    orderId?: number;
+}
+
+const RoutingControl = ({ origin, destination }: { origin: L.LatLngExpression; destination: L.LatLngExpression }) => {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!map) return;
+
+        const routingControl = (L as any).Routing.control({
+            waypoints: [L.latLng(origin), L.latLng(destination)],
+            routeWhileDragging: false,
+            addWaypoints: false,
+            language: 'vi',
+            showAlternatives: false,
+            lineOptions: {
+                styles: [{ color: '#3b82f6', opacity: 0.6, weight: 5 }]
+            }
+        });
+
+        routingControl.addTo(map);
+
+        return () => {
+            try { map.removeControl(routingControl); } catch {}
+        };
+    }, [map, origin, destination]);
+
+    return null;
+};
+
 const LiveMap: React.FC<LiveMapProps> = ({ driversData, ordersData }) => {
-    const { isLoaded } = useJsApiLoader({
-        id: 'google-map-script',
-        googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-    });
+    const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
+    const [routingDestination, setRoutingDestination] = useState<L.LatLngExpression | null>(null);
 
-    const [directionsResponse, setDirectionsResponse] = useState<any>(null);
-
-    // Tính toán lộ trình nếu có tài xế đang giao đơn hàng
-    const calculateRoute = useCallback(async () => {
-        if (!isLoaded || !window.google) return;
-        // Tìm một tài xế đang giao hàng để vẽ đường (có thể mở rộng vẽ cho nhiều xe nếu cần)
+    const activeDriverRoute = useMemo(() => {
         const activeDriverId = Object.keys(driversData).find(id => driversData[id].status === 'delivering');
+        if (!activeDriverId) return null;
 
-        if (!activeDriverId) {
-            setDirectionsResponse(null); // Xóa đường kẻ nếu không có xe chạy
+        const driver = driversData[activeDriverId];
+        const assignedOrder = ordersData.find(o => o.id.toString() === String(driver.active_order_id));
+        if (!assignedOrder) return null;
+
+        return {
+            driverId: activeDriverId,
+            order: assignedOrder,
+            origin: [driver.lat, driver.lng] as L.LatLngExpression
+        };
+    }, [driversData, ordersData]);
+
+    // Key cố định để map không bị destroy/recreate khi data thay đổi
+    const mapKey = 'live-map';
+
+    useEffect(() => {
+        if (!activeDriverRoute) {
+            setRoutingDestination(null);
+            setRoutePoints([]);
             return;
         }
 
-        const driver = driversData[activeDriverId];
-        const assignedOrder = ordersData.find(o => o.id.toString() === driver.active_order_id);
+        setRoutePoints(prev => {
+            const next = [...prev, { lat: activeDriverRoute.origin[0] as number, lng: activeDriverRoute.origin[1] as number }];
+            return next.slice(-50);
+        });
+        setRoutingDestination({ lat: activeDriverRoute.order.latitude, lng: activeDriverRoute.order.longitude });
+    }, [activeDriverRoute]);
 
-        if (!assignedOrder || !window.google) return;
+    const driverMarkers = useMemo(() => {
+        return Object.keys(driversData).map(driverId => {
+            const data = driversData[driverId];
+            return {
+                driverId,
+                position: [data.lat, data.lng] as L.LatLngExpression,
+                status: data.status,
+                activeOrderId: data.active_order_id
+            };
+        });
+    }, [driversData]);
 
-        const directionsService = new window.google.maps.DirectionsService();
-        try {
-            const results = await directionsService.route({
-                origin: { lat: driver.lat, lng: driver.lng },
-                destination: { lat: Number(assignedOrder.latitude), lng: Number(assignedOrder.longitude) },
-                travelMode: "TWO_WHEELER" as any, // Dùng chế độ xe máy
-            });
-            setDirectionsResponse(results);
-        } catch (error) {
-            console.error("Lỗi Directions API:", error);
-        }
-    }, [driversData, ordersData, isLoaded]);
+    const orderMarkers = useMemo(() => {
+        return ordersData.map(order => ({
+            id: order.id,
+            position: [Number(order.latitude), Number(order.longitude)] as L.LatLngExpression,
+            status: order.status,
+            customerName: order.customer_name,
+            address: order.address
+        }));
+    }, [ordersData]);
 
-    useEffect(() => {
-        calculateRoute();
-    }, [calculateRoute]);
-
-    if (!isLoaded) return <div className="flex h-full items-center justify-center">Đang tải bản đồ...</div>;
+    const polylinePositions = useMemo(() => {
+        if (!activeDriverRoute) return [];
+        return routePoints.map(point => [point.lat, point.lng] as L.LatLngExpression);
+    }, [routePoints, activeDriverRoute]);
 
     return (
-        <GoogleMap
-            mapContainerStyle={containerStyle}
+        <MapContainer
+            key={mapKey}
             center={defaultCenter}
             zoom={13}
-            options={{ disableDefaultUI: true, zoomControl: true }}
+            className="z-0 rounded-lg shadow-sm"
+            zoomControl={true}
+            style={{ height: '100%', width: '100%', minHeight: '500px' }}
         >
-            {/* Lặp qua danh sách tài xế từ Socket và vẽ Marker */}
-            {Object.keys(driversData).map(driverId => (
+            <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            {driverMarkers.map(driver => (
                 <DriverMarker
-                    key={driverId}
-                    driverId={driverId}
-                    targetLocation={{ lat: driversData[driverId].lat, lng: driversData[driverId].lng }}
-                    status={driversData[driverId].status}
+                    key={driver.driverId}
+                    driverId={driver.driverId}
+                    position={driver.position}
+                    status={driver.status}
+                    activeOrderId={driver.activeOrderId}
                 />
             ))}
 
-            {/* Vẽ đường Polyline nếu có Directions */}
-            {directionsResponse && (
-                <DirectionsRenderer
-                    directions={directionsResponse}
-                    options={{
-                        suppressMarkers: true, // Ẩn marker mặc định A B của Google
-                        polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 5 }
-                    }}
+            {orderMarkers.map(order => (
+                <Marker key={`order-${order.id}`} position={order.position}>
+                    <Popup>
+                        <div className="text-slate-800">
+                            <p className="font-bold text-sm">#ORD-{order.id}</p>
+                            <p className="text-xs text-slate-600 mt-1">{order.customerName}</p>
+                            <p className="text-xs text-slate-500 mt-1">{order.address}</p>
+                            <span className={`inline-block mt-2 px-2 py-1 text-[11px] font-bold rounded-full ${
+                                order.status === 'pending' ? 'bg-slate-100 text-slate-600' :
+                                order.status === 'pickup' ? 'bg-blue-100 text-blue-700' :
+                                order.status === 'delivering' ? 'bg-amber-100 text-amber-700' :
+                                order.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-red-100 text-red-700'
+                            }`}>
+                                {order.status}
+                            </span>
+                        </div>
+                    </Popup>
+                </Marker>
+            ))}
+
+            {routingDestination && activeDriverRoute && (
+                <RoutingControl origin={activeDriverRoute.origin} destination={routingDestination} />
+            )}
+
+            {polylinePositions.length > 1 && (
+                <Polyline
+                    positions={polylinePositions}
+                    pathOptions={{ color: '#3b82f6', weight: 5, opacity: 0.6 }}
                 />
             )}
-        </GoogleMap>
+        </MapContainer>
     );
 };
 

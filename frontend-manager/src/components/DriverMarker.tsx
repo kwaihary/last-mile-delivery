@@ -1,33 +1,40 @@
 import React from 'react';
-import { Marker } from '@react-google-maps/api';
+import { Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
 import { useInterpolation } from '../hooks/useInterpolation';
 
 interface DriverMarkerProps {
     driverId: string;
-    targetLocation: { lat: number; lng: number };
+    position: L.LatLngExpression;
     status: string;
+    activeOrderId?: string;
 }
 
-const DriverMarker: React.FC<DriverMarkerProps> = ({ driverId, targetLocation, status }) => {
-    // Truyền tọa độ từ Socket vào Hook để lấy tọa độ mượt
-    const smoothLocation = useInterpolation(targetLocation, 10000);
+const driverIconByStatus = (status: string) => {
+    const emoji = status === 'delivering' ? '🛵' : '🛸';
+    return L.divIcon({
+        className: 'driver-marker',
+        html: `<div style="font-size:28px;line-height:1;filter:drop-shadow(0 2px 2px rgba(0,0,0,0.3));">${emoji}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+    });
+};
 
-    // Đổi icon tùy theo trạng thái (có thể thay đổi URL icon cho sinh động)
-    const getIconUrl = () => {
-        if (status === 'delivering') return 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png'; // Icon xe đang giao
-        return 'https://cdn-icons-png.flaticon.com/512/2983/2983606.png'; // Icon xe rảnh
-    };
+const DriverMarker: React.FC<DriverMarkerProps> = ({ driverId, position, status, activeOrderId }) => {
+    const smoothLocation = useInterpolation(position, 10000);
+
+    const statusText = status === 'delivering' ? 'Đang giao' : status === 'idle' ? 'Rảnh' : status;
 
     return (
-        <Marker
-            position={smoothLocation}
-            icon={{
-                url: getIconUrl(),
-                scaledSize: new window.google.maps.Size(40, 40),
-                anchor: new window.google.maps.Point(20, 20),
-            }}
-            title={`Tài xế: ${driverId}`}
-        />
+        <Marker position={smoothLocation} icon={driverIconByStatus(status)}>
+            <Popup>
+                <div className="text-slate-800">
+                    <p className="font-bold text-sm">Tài xế #{driverId}</p>
+                    <p className="text-xs text-slate-600 mt-1">Trạng thái: {statusText}</p>
+                    {activeOrderId ? <p className="text-xs text-slate-500 mt-1">Đơn #{activeOrderId}</p> : null}
+                </div>
+            </Popup>
+        </Marker>
     );
 };
 

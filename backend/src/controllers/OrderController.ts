@@ -6,6 +6,7 @@ import { DeliveryProof } from '../models/DeliveryProof';
 import { RouteHistory } from '../models/RouteHistory';
 import redisClient from '../config/redis';
 import { sendResponse } from '../utils/responseHelper';
+import { sendTrackingSms } from '../services/twilio';
 import crypto from 'crypto';
 
 const orderRepo = AppDataSource.getRepository(Order);
@@ -68,16 +69,31 @@ export class OrderController {
             });
 
             const savedOrder = await orderRepo.save(newOrder);
-            return sendResponse(res, 201, { id: savedOrder.id }, "Tạo đơn hàng thành công");
+            return sendResponse(res, 201, { id: savedOrder.id, tracking_token: savedOrder.tracking_token }, "Tạo đơn hàng thành công");
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);
         }
     }
 
-    // Dùng GET /api/orders ( Xem tất cả đơn hàng )
+    // Dùng GET /api/orders ( Xem tất cả đơn hàng - Manager only )
     static async getAllOrders(req: Request, res: Response) {
         try {
             const orders = await orderRepo.find({ relations: { 'manager': true, 'driver': true } });
+            return sendResponse(res, 200, orders);
+        } catch (error: any) {
+            return sendResponse(res, 500, null, '', error.message);
+        }
+    }
+
+    // Dùng GET /api/drivers/orders ( Tài xế xem đơn của mình )
+    static async getMyOrders(req: any, res: Response) {
+        try {
+            const driverId = Number(req.user.id);
+            const orders = await orderRepo.find({
+                where: { driver_id: driverId },
+                relations: { 'manager': true, 'driver': true },
+                order: { created_at: 'DESC' }
+            });
             return sendResponse(res, 200, orders);
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);
@@ -104,6 +120,21 @@ export class OrderController {
                 'active_order_id', String(orderId)
             );
 
+            // Thông báo realtime cho tài xế qua Socket
+            try {
+                const io = (global as any).io;
+                if (io) {
+                    io.emit('ORDER_ASSIGNED', {
+                        orderId: order.id,
+                        status: 'pickup',
+                        address: order.address,
+                        customer_name: order.customer_name,
+                        customer_phone: order.customer_phone,
+                        ship_cod: order.ship_cod
+                    });
+                }
+            } catch {}
+
             return sendResponse(res, 200, order, "Gán đơn thành công. Trạng thái: pickup");
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);
@@ -114,19 +145,71 @@ export class OrderController {
     static async updateOrderStatus(req: any, res: Response) {
         try {
             const orderId = Number(req.params.id);
+            const driverId = req.user.id;
             const { status } = req.body;
 
             let order = await orderRepo.findOneBy({ id: orderId });
-            if (!order) return sendResponse(res, 404);
+            if (!order) return sendResponse(res, 404, null, '', "Không tìm thấy đơn hàng");
 
+            // Kiểm tra tài xế có phải người nhận đơn không
+            if (order.driver_id !== driverId) {
+                return sendResponse(res, 403, null, '', "Bạn không có quyền thao tác đơn hàng này");
+            }
+
+            // Validate trạng thái hợp lệ
+            if (order.status === 'pickup' && !['delivering', 'failed'].includes(status)) {
+                return sendResponse(res, 400, null, '', `Không thể chuyển từ "${order.status}" sang "${status}"`);
+            }
+            if (order.status === 'delivering' && !['completed', 'failed'].includes(status)) {
+                return sendResponse(res, 400, null, '', `Không thể chuyển từ "${order.status}" sang "${status}"`);
+            }
+            if (!['pickup', 'delivering'].includes(order.status)) {
+                return sendResponse(res, 400, null, '', `Không thể cập nhật trạng thái từ "${order.status}"`);
+            }
+
+            const previousStatus = order.status;
             order.status = status;
 
             if (status === 'delivering') {
                 order.started_at = new Date();
             }
 
-            await orderRepo.save(order);
-            return sendResponse(res, 200, order, `Cập nhật trạng thái thành ${status}`);
+            const savedOrder = await orderRepo.save(order);
+
+            // Gửi SMS khi bắt đầu giao hàng (pickup → delivering)
+            if (status === 'delivering' && previousStatus === 'pickup') {
+                const publicBaseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+                const trackingUrl = `${publicBaseUrl}/track/${order.tracking_token}`;
+
+                console.log(`[SMS] Gửi tracking URL đến khách hàng cho đơn #${order.id}:`);
+                console.log(`  → SĐT: ${order.customer_phone}`);
+                console.log(`  → URL: ${trackingUrl}`);
+
+                if (!order.customer_phone) {
+                    console.warn(`[SMS] Bỏ qua — đơn #${order.id} không có số điện thoại khách hàng`);
+                } else if (!order.tracking_token) {
+                    console.warn(`[SMS] Bỏ qua — đơn #${order.id} không có tracking_token`);
+                } else {
+                    sendTrackingSms(order.customer_phone, trackingUrl, order.id).catch((smsError) => {
+                        console.error(`[SMS] Gửi SMS thất bại cho đơn #${order.id}:`, smsError.message);
+                    });
+                }
+            }
+
+            // Thông báo realtime cho khách hàng đang theo dõi
+            try {
+                const io = (global as any).io;
+                if (io) {
+                    io.emit('ORDER_STATUS_CHANGED', {
+                        orderId: order.id,
+                        trackingToken: order.tracking_token,
+                        status: order.status,
+                        previousStatus
+                    });
+                }
+            } catch {}
+
+            return sendResponse(res, 200, savedOrder, `Cập nhật trạng thái thành ${status}`);
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);
         }
@@ -137,10 +220,20 @@ export class OrderController {
         try {
             const orderId = Number(req.params.id);
             const driverId = req.user.id;
-            const { image_url, driver_notes, status } = req.body;
+            const { image_url, driver_notes } = req.body;
 
             let order = await orderRepo.findOneBy({ id: orderId });
-            if (!order) return sendResponse(res, 404);
+            if (!order) return sendResponse(res, 404, null, '', "Không tìm thấy đơn hàng");
+
+            // Kiểm tra tài xế có phải người nhận đơn này không
+            if (order.driver_id !== driverId) {
+                return sendResponse(res, 403, null, '', "Bạn không có quyền thao tác đơn hàng này");
+            }
+
+            // Chỉ cho phép hoàn thành khi đang ở trạng thái 'delivering'
+            if (!['delivering'].includes(order.status)) {
+                return sendResponse(res, 400, null, '', `Không thể hoàn thành đơn ở trạng thái "${order.status}"`);
+            }
 
             // Lưu Minh chứng giao hàng vào Postgres
             const newProof = proofRepo.create({ order_id: orderId, image_url, driver_notes });
@@ -161,23 +254,36 @@ export class OrderController {
                 });
                 await routeRepo.save(newRoute);
 
-                // Dọn RAM Redis 
+                // Dọn RAM Redis
                 await redisClient.del(`order:route:${orderId}`);
             }
 
-            // Trạng thái tài xế về idle ( Rảnh ) trong Redis
+            // Trạng thái tài xế về idle (Rảnh) trong Redis
             await redisClient.hset(`driver:status:${driverId}`,
                 'current_status', 'idle',
                 'active_order_id', ''
             );
 
-            // Xóa tài xế khỏi danh sách định vị GEO nếu đơn hàng kết thúc
+            // Xóa tài xế khỏi danh sách định vị GEO
             await redisClient.zrem('drivers:locations', String(driverId));
 
-            // Cập nhật thời điểm hoàn thành đơn hàng 
-            order.status = status;
+            // Cập nhật trạng thái đơn hàng — luôn là 'completed'
+            order.status = 'completed';
             order.complete_at = new Date();
             await orderRepo.save(order);
+
+            // Thông báo realtime cho khách hàng
+            try {
+                const io = (global as any).io;
+                if (io) {
+                    io.emit('ORDER_STATUS_CHANGED', {
+                        orderId: order.id,
+                        trackingToken: order.tracking_token,
+                        status: order.status,
+                        previousStatus: 'delivering'
+                    });
+                }
+            } catch {}
 
             return sendResponse(res, 200, null, "Hoàn tất luồng đơn hàng chặng cuối thành công");
         } catch (error: any) {
@@ -189,7 +295,7 @@ export class OrderController {
     static async updateLocation(req: any, res: Response) {
         try {
             const orderId = req.params.id;
-            const driverId = req.user.id;
+            const driverId = req.user.id; // Đã xác thực qua verifyToken middleware
             const { lat, lng } = req.body;
 
             // Lưu vào mảng LIST để vẽ lộ trình 
@@ -205,6 +311,52 @@ export class OrderController {
             );
 
             return sendResponse(res, 200, null, "Đã cập nhật tọa độ GPS vào Redis");
+        } catch (error: any) {
+            return sendResponse(res, 500, null, '', error.message);
+        }
+    }
+
+    // Dùng GET /api/orders/track/:token ( Khách hàng cuối theo dõi đơn )
+    static async trackOrderByToken(req: Request, res: Response) {
+        try {
+            const token = req.params.token as string;
+
+            const order = await orderRepo.findOne({ where: { tracking_token: token }, relations: { manager: true, driver: true } });
+            if (!order) {
+                return sendResponse(res, 404, null, '', 'Không tìm thấy đơn hàng');
+            }
+
+            const latestLocation = order.id ? await redisClient.geopos('drivers:locations', String(order.driver_id || '')).then((pos) => pos?.[0]) : null;
+
+            const routeRaw = order.id ? await redisClient.lrange(`order:route:${order.id}`, -5, -1) : [];
+            const route = routeRaw.map((item) => JSON.parse(item));
+
+            const data = {
+                id: order.id,
+                status: order.status,
+                customer_name: order.customer_name,
+                address: order.address,
+                driver: order.driver
+                    ? {
+                        id: order.driver.id,
+                        full_name: order.driver.full_name,
+                        driver_profile: order.driver.driver_profile
+                            ? {
+                                vehicle_type: (order.driver.driver_profile as any).vehicle_type,
+                                license_plate: (order.driver.driver_profile as any).license_plate
+                            }
+                            : null
+                    }
+                    : null,
+                route,
+                latitude: latestLocation ? Number(latestLocation[1]) : Number(order.latitude),
+                longitude: latestLocation ? Number(latestLocation[0]) : Number(order.longitude),
+                remaining_distance_meters: order.status === 'delivering' && route.length > 1 ? Number((route[route.length - 1]?.remaining_distance_meters ?? 0) || 0) : null,
+                started_at: order.started_at,
+                created_at: order.created_at
+            };
+
+            return sendResponse(res, 200, data);
         } catch (error: any) {
             return sendResponse(res, 500, null, '', error.message);
         }
