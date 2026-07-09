@@ -18,6 +18,7 @@ export class User {
     @BeforeInsert()
     @BeforeUpdate()
     async hashPassword() {
+        // Chỉ băm nếu password tồn tại và chưa được băm (Bcrypt hash thường bắt đầu bằng $2a$ hoặc $2b$)
         // hash nếu password tồn tại và chưa hash
         if (this.password && !this.password.startsWith('$2b$') && !this.password.startsWith('$2a$')) {
             const salt = await bcrypt.genSalt(10);
