@@ -21,7 +21,8 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Tăng limit JSON body để nhận ảnh minh chứng dạng base64 từ driver-app
+app.use(express.json({ limit: '10mb' }));
 
 // ── Static Files: Customer Tracking (public, no auth required) ──────────────
 app.use('/track', express.static(path.resolve(__dirname, '../../customer-tracking/src')));
@@ -77,7 +78,8 @@ app.get('/health', (req, res) => {
 // Serve /track → customer-tracking/src/index.html (static, no auth needed)
 // Note: /track/:token is handled by the static middleware too
 const customerTrackingPath = path.resolve(__dirname, '../../customer-tracking/src/index.html');
-app.get('/track', (req, res) => {
+// /track/:token cũng phải trả về cùng file HTML (token được đọc từ URL path ở phía client)
+app.get(['/track', '/track/:token'], (req, res) => {
     res.sendFile(customerTrackingPath, (err) => {
         if (err) {
             console.error('Không tìm thấy customer-tracking page:', err);

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/drivermarker.tsx","./src/components/livemap.tsx","./src/components/protectedroute.tsx","./src/hooks/useinterpolation.ts","./src/pages/dashboard.tsx","./src/pages/login.tsx","./src/services/api.ts","./src/utils/map.ts"],"version":"6.0.3"}

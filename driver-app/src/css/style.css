@@ -790,6 +790,10 @@ body {
 /* ==========================================================================
    MAP TAB
    ========================================================================== */
+#btn-locate-driver {
+  margin-bottom: 5rem; 
+}
+
 .tab-map-container {
   position: absolute;
   inset: 0;
@@ -802,6 +806,57 @@ body {
   z-index: 1;
   background: var(--bg-app);
   height: 100%;
+}
+
+.tracking-mini-fab {
+  position: absolute;
+  right: 14px;
+  bottom: 110px;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  border-radius: var(--r-full);
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.36);
+  z-index: 21;
+  transition: var(--t-spring);
+}
+
+.tracking-mini-fab:hover {
+  background: var(--primary-hover);
+  transform: translateY(-2px) scale(1.05);
+}
+
+.tracking-mini-fab:active {
+  transform: scale(.95);
+}
+
+.tracking-mini-fab svg {
+  width: 22px;
+  height: 22px;
+}
+
+.tracking-mini-fab span {
+  position: absolute;
+  top: -7px;
+  right: -5px;
+  min-width: 30px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--danger);
+  color: #fff;
+  border: 2px solid #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, .2);
 }
 
 /* Tracking info card */
@@ -832,6 +887,37 @@ body {
   margin-bottom: 10px;
   padding-bottom: 10px;
   border-bottom: 1px dashed var(--border);
+  gap: 8px;
+}
+
+.tracking-close-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--t-base);
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.tracking-close-btn:hover {
+  background: var(--bg-soft);
+  color: var(--text-main);
+}
+
+.tracking-close-btn:active {
+  transform: scale(0.92);
+}
+
+.tracking-close-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .tracking-label {
@@ -1145,6 +1231,31 @@ body {
 
 .modal-actions .btn { flex: 1; padding: 12px; }
 
+.modal-fail-delivery-box {
+  text-align: left;
+}
+
+.modal-fail-delivery-box .modal-icon-wrap,
+.modal-fail-delivery-box .modal-title,
+.modal-fail-delivery-box .modal-message {
+  text-align: center;
+}
+
+.modal-input-group {
+  margin-bottom: 16px;
+}
+
+.modal-input-group textarea {
+  min-height: 104px;
+  resize: none;
+}
+
+.modal-input-group .error-message {
+  margin-top: 8px;
+  margin-bottom: 0;
+  text-align: left;
+}
+
 /* ==========================================================================
    TOAST
    ========================================================================== */
@@ -1337,6 +1448,14 @@ body {
 /* Khi tracking-info-card hiện thì FAB nằm phía trên card */
 .map-fab-locate.has-tracking {
   bottom: 320px;
+}
+
+.map-fab-locate.has-mini-tracking {
+  bottom: 168px;
+}
+
+.tracking-mini-fab:not(.hidden) {
+  bottom: 110px;
 }
 
 /* Connection Banner */

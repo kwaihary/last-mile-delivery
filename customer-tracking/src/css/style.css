@@ -1,4 +1,4 @@
-* {
+﻿* {
   box-sizing: border-box;
 }
 
@@ -8,7 +8,7 @@ body {
   padding: 0;
   height: 100%;
   font-family: 'Inter', sans-serif;
-  background: #e5e3df;
+  background: #cbd5e1;
   color: #0f172a;
 }
 
@@ -16,17 +16,16 @@ body {
   max-width: 430px;
   margin: 0 auto;
   height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  background: #e5e3df;
   position: relative;
   overflow: hidden;
+  background: #e5e3df;
+  box-shadow: 0 0 40px rgba(15, 23, 42, 0.15);
 }
 
+/* Map chiem toan bo man hinh, lam nen chinh */
 .map-area {
-  flex: 1;
-  position: relative;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
 }
 
 #map {
@@ -35,99 +34,170 @@ body {
   background: #e5e3df;
 }
 
-.eta-card {
+/* Cham trang thai ket noi realtime - noi nhe, khong lam roi mat */
+.connection-dot {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  right: 16px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  border: 1px solid #e7e5e4;
-  border-radius: 20px;
-  padding: 16px;
-  text-align: center;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-  z-index: 400;
+  top: 18px;
+  right: 18px;
+  z-index: 450;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
 }
 
-.eta-label {
-  margin: 0 0 6px;
+.connection-dot.online     { background: #22c55e; }
+.connection-dot.offline    { background: #94a3b8; }
+.connection-dot.connecting { background: #f59e0b; animation: pulse 1s ease-in-out infinite; }
+.connection-dot.error      { background: #ef4444; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Card ETA noi tren map - don gian, gon, giong tham chieu */
+.eta-card {
+  position: absolute;
+  top: 48px;
+  left: 16px;
+  right: 16px;
+  z-index: 400;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  padding: 16px 18px;
+  text-align: center;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
+}
+
+.eta-title {
+  margin: 0 0 4px;
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
-  letter-spacing: 0.08em;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .eta-value {
   margin: 0;
-  font-size: 38px;
-  font-weight: 900;
-  color: #0f172a;
+  font-size: 34px;
+  font-weight: 800;
+  color: #1e293b;
   letter-spacing: -0.02em;
-  line-height: 1;
+  line-height: 1.15;
 }
 
 .eta-unit {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 500;
-  color: #94a3b8;
-  margin-left: 4px;
+  color: #64748b;
 }
 
 .eta-progress {
   margin-top: 12px;
   height: 6px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: #eef1f6;
   overflow: hidden;
 }
 
 .eta-progress-bar {
   height: 100%;
-  width: 0%;
+  width: 4%;
   border-radius: 999px;
   background: #3b82f6;
-  transition: width 1s linear;
-  background: linear-gradient(90deg, #3b82f6, #6366f1);
+  transition: width 0.8s ease;
 }
 
-.bottom-sheet {
-  background: #ffffff;
-  border-top-left-radius: 24px;
-  border-top-right-radius: 24px;
-  padding: 14px 18px 22px;
-  box-shadow: 0 -10px 40px rgba(15, 23, 42, 0.08);
+/* Loading state cho ETA card */
+.eta-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.eta-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Card thong tin don hang, noi o duoi cung - don, gon, khong chi tiet rom ra */
+.bottom-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 500;
+  background: #ffffff;
+  border-radius: 28px 28px 0 0;
+  padding: 12px 22px calc(24px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -10px 40px rgba(15, 23, 42, 0.1);
 }
 
 .sheet-handle {
-  width: 40px;
-  height: 4px;
-  margin: 0 auto 14px;
+  width: 44px;
+  height: 5px;
+  margin: 0 auto 18px;
   border-radius: 999px;
   background: #e2e8f0;
 }
 
-.order-badge {
-  margin: 0 0 12px;
+.order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.order-label {
+  margin: 0;
   font-size: 12px;
   font-weight: 700;
   color: #2563eb;
-  letter-spacing: 0.1em;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
-.driver-card {
+.order-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+.status-pending     { background: #e0f2fe; color: #0369a1; }
+.status-pickup      { background: #fef3c7; color: #b45309; }
+.status-delivering  { background: #e0e7ff; color: #4338ca; }
+.status-completed   { background: #d1fae5; color: #047857; }
+.status-failed,
+.status-canceled    { background: #ffe4e6; color: #b91c1c; }
+
+.driver-row {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
 .driver-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 999px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
   overflow: hidden;
   border: 1px solid #e7e5e4;
   background: #f8fafc;
@@ -141,229 +211,73 @@ body {
   display: block;
 }
 
-.driver-name {
+.driver-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.driver-info h3 {
   margin: 0;
   font-size: 17px;
-  font-weight: 800;
-  color: #0f172a;
-}
-
-.driver-vehicle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #64748b;
-}
-
-/* Status timeline steps */
-.status-steps {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid #f1f5f9;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.step-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  position: relative;
-}
-
-.step-line {
-  position: absolute;
-  left: 7px;
-  top: -14px;
-  width: 2px;
-  height: 14px;
-  background: #e2e8f0;
-}
-
-.step-item.completed .step-line {
-  background: #3b82f6;
-}
-
-.step-item.completed .step-dot {
-  background: #3b82f6;
-  border-color: #3b82f6;
-}
-
-.step-item.active .step-dot {
-  border-color: #3b82f6;
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-.step-item.active .step-title {
-  color: #2563eb;
   font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.step-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  border: 3px solid #e2e8f0;
-  flex-shrink: 0;
-  margin-top: 2px;
-  transition: all 0.3s ease;
-}
-
-.step-info {
-  flex: 1;
-  padding-bottom: 12px;
-}
-
-.step-title {
-  font-size: 13px;
-  font-weight: 500;
+.driver-info p {
+  margin: 3px 0 0;
+  font-size: 14px;
   color: #64748b;
-  transition: color 0.3s ease;
 }
 
-.step-item.completed .step-title,
-.step-item.active .step-title {
-  color: #0f172a;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
-}
-
-/* Loading state */
-.eta-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.eta-loading-spinner {
-  width: 24px;
-  height: 24px;
-  border: 3px solid #e2e8f0;
-  border-top-color: #3b82f6;
+.call-btn {
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Map markers */
-.tracking-driver-marker,
-.tracking-destination-marker {
-  background: transparent;
   border: none;
-}
-
-/* Connection status badge */
-.connection-badge {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 500;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(8px);
-  border: 1px solid #e7e5e4;
-  border-radius: 20px;
-  padding: 6px 12px;
+  background: #d1fae5;
+  color: #059669;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.connection-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  justify-content: center;
+  cursor: pointer;
   flex-shrink: 0;
+  transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-.connection-dot.online     { background: #10b981; box-shadow: 0 0 4px #10b981; }
-.connection-dot.offline    { background: #94a3b8; }
-.connection-dot.connecting { background: #f59e0b; animation: pulse 1s ease-in-out infinite; }
-.connection-dot.error      { background: #f43f5e; }
+.call-btn:hover  { background: #a7f3d0; transform: scale(1.05); }
+.call-btn:active { transform: scale(0.95); }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-/* Order status badge in header */
-.order-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.order-status-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 8px;
-}
-
-.status-pending    { background: #e0f2fe; color: #0369a1; }
-.status-pickup    { background: #fef3c7; color: #b45309; }
-.status-delivering { background: #e0e7ff; color: #4338ca; }
-.status-completed  { background: #d1fae5; color: #047857; }
-.status-failed     { background: #ffe4e6; color: #b91c1c; }
-.status-canceled   { background: #ffe4e6; color: #b91c1c; }
-
-/* Custom driver/destination markers */
+/* Marker tren map - icon xe may va vi tri, don gian khong vien rom ra */
 .driver-marker, .dest-marker { background: transparent; border: none; }
 
 .driver-marker-inner {
-  background: white;
+  width: 38px;
+  height: 38px;
+  background: #ffffff;
   border-radius: 50%;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-  width: 36px;
-  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3), 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
 .dest-marker-inner {
-  background: white;
-  border-radius: 12px 12px 12px 0;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 42px;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  transform: rotate(-45deg);
+  font-size: 32px;
+  line-height: 1;
+  filter: drop-shadow(0 3px 5px rgba(244, 63, 94, 0.4));
 }
 
-.dest-marker-inner svg { transform: rotate(45deg); }
-
-/* Step items: failed state */
-.step-item.failed .step-dot {
-  background: #f43f5e;
-  border-color: #f43f5e;
-}
-.step-item.failed .step-line {
-  background: #f43f5e;
-}
-.step-item.failed .step-title {
-  color: #b91c1c;
-  font-weight: 700;
-}
-
-/* Error state */
+/* Trang thai loi khi khong tai duoc don hang */
 .error-boundary {
   display: flex;
   align-items: center;

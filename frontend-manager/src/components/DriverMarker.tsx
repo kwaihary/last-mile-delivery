@@ -1,7 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
-import { useInterpolation } from '../hooks/useInterpolation';
 
 interface DriverMarkerProps {
     driverId: string;
@@ -21,12 +20,14 @@ const driverIconByStatus = (status: string) => {
 };
 
 const DriverMarker: React.FC<DriverMarkerProps> = ({ driverId, position, status, activeOrderId }) => {
-    const smoothLocation = useInterpolation(position, 10000);
-
+    const positionTuple: [number, number] = Array.isArray(position)
+        ? [Number((position as any)[0]), Number((position as any)[1])]
+        : [Number((position as any).lat), Number((position as any).lng)];
+    const icon = useMemo(() => driverIconByStatus(status), [status]);
     const statusText = status === 'delivering' ? 'Đang giao' : status === 'idle' ? 'Rảnh' : status;
 
     return (
-        <Marker position={smoothLocation} icon={driverIconByStatus(status)}>
+        <Marker position={positionTuple} icon={icon}>
             <Popup>
                 <div className="text-slate-800">
                     <p className="font-bold text-sm">Tài xế #{driverId}</p>

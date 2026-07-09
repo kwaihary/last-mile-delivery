@@ -2,10 +2,14 @@
  * Customer Tracking — Socket.IO Connection
  * Kết nối WebSocket để nhận cập nhật vị trí tài xế real-time
  * Xác thực qua trackingToken (không cần JWT)
+ * Hỗ trợ tự động reconnect khi mất kết nối
  */
 
 let socket = null;
 let trackingToken = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_DELAY = 2000;
 
 function buildSocketUrl() {
   const protocol = location.protocol === 'https:' ? 'https://' : 'http://';
@@ -25,10 +29,15 @@ function connectTrackingSocket(token, onMessage) {
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     auth: { trackingToken: token },
+    reconnection: true,
+    reconnectionDelay: BASE_RECONNECT_DELAY,
+    reconnectionDelayMax: 30000,
+    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
   });
 
   socket.on('connect', () => {
     console.log('[TrackingSocket] Connected:', socket.id);
+    reconnectAttempts = 0;
     updateConnectionStatus('online');
     socket.emit('tracking:join', { trackingToken: token });
   });
@@ -45,12 +54,22 @@ function connectTrackingSocket(token, onMessage) {
 
   socket.on('connect_error', (err) => {
     console.error('[TrackingSocket] Connection error:', err.message);
-    updateConnectionStatus('error');
+    reconnectAttempts++;
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      updateConnectionStatus('error');
+    } else {
+      updateConnectionStatus('connecting');
+    }
   });
 
   socket.on('disconnect', (reason) => {
     console.warn('[TrackingSocket] Disconnected:', reason);
-    updateConnectionStatus('offline');
+    if (reason === 'io server disconnect') {
+      // Server disconnected, attempt manual reconnect
+      socket.connect();
+    } else {
+      updateConnectionStatus('offline');
+    }
   });
 
   socket.on('reconnect_attempt', () => {
@@ -58,8 +77,15 @@ function connectTrackingSocket(token, onMessage) {
   });
 
   socket.on('reconnect', () => {
+    console.log('[TrackingSocket] Reconnected successfully');
+    reconnectAttempts = 0;
     updateConnectionStatus('online');
     socket.emit('tracking:join', { trackingToken: token });
+  });
+
+  socket.on('reconnect_failed', () => {
+    console.error('[TrackingSocket] Reconnection failed after max attempts');
+    updateConnectionStatus('error');
   });
 }
 
@@ -72,19 +98,10 @@ function disconnectTrackingSocket() {
 
 function updateConnectionStatus(status) {
   const dot = document.getElementById('connection-dot');
-  const text = document.getElementById('connection-text');
-  if (!dot || !text) return;
+  if (!dot) return;
 
-  const states = {
-    online:     { cls: 'online',     label: 'Đã kết nối' },
-    offline:    { cls: 'offline',    label: 'Mất kết nối' },
-    connecting: { cls: 'connecting', label: 'Đang kết nối...' },
-    error:      { cls: 'error',      label: 'Lỗi kết nối' },
-  };
-
-  const s = states[status] || states.offline;
-  dot.className = `connection-dot ${s.cls}`;
-  text.textContent = s.label;
+  const states = ['online', 'offline', 'connecting', 'error'];
+  dot.className = `connection-dot ${states.includes(status) ? status : 'offline'}`;
 }
 
 window.CustomerTrackingSocket = {

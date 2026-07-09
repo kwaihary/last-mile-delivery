@@ -7,5 +7,7 @@ const router = Router();
 
 router.patch('/status', verifyToken, DriverController.toggleOnlineStatus);
 router.get('/orders', verifyToken, OrderController.getMyOrders);
+router.get('/stats', verifyToken, DriverController.getMyStats);
+router.get('/history', verifyToken, DriverController.getMyHistory);
 
 export default router;

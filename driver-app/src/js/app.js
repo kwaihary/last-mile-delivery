@@ -29,6 +29,7 @@ const AppState = {
   pickupMarkers: [],     // marker kho (nếu có)
   watchId: null,
   mapInitialised: false,
+  trackingCardCollapsed: false,
   // Lưu vị trí tài xế mới nhất để FAB "định vị lại" có thể dùng ngay
   lastDriverLatLng: null
 };
@@ -155,6 +156,50 @@ function showConfirmModal({ title, message, okText = 'Xác nhận', cancelText =
   });
 }
 
+function showFailDeliveryModal(orderId) {
+  return new Promise((resolve) => {
+    const overlay = $('modal-fail-delivery');
+    const msgEl = $('modal-fail-delivery-message');
+    const reasonEl = $('modal-fail-delivery-reason');
+    const errorEl = $('modal-fail-delivery-error');
+    const okBtn = $('modal-fail-delivery-ok');
+    const cancelBtn = $('modal-fail-delivery-cancel');
+    if (!overlay || !reasonEl || !okBtn || !cancelBtn) return resolve(null);
+
+    if (msgEl) msgEl.textContent = `Nhập lý do thất bại cho đơn #ORD-${orderId}.`;
+    reasonEl.value = '';
+    errorEl?.classList.add('hidden');
+    overlay.classList.remove('hidden');
+    setTimeout(() => reasonEl.focus(), 50);
+
+    const cleanup = () => {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', handleOk);
+      cancelBtn.removeEventListener('click', handleCancel);
+      overlay.removeEventListener('click', handleBg);
+      reasonEl.removeEventListener('input', handleInput);
+    };
+    const handleInput = () => errorEl?.classList.add('hidden');
+    const handleOk = () => {
+      const reason = reasonEl.value.trim();
+      if (!reason) {
+        errorEl?.classList.remove('hidden');
+        reasonEl.focus();
+        return;
+      }
+      cleanup();
+      resolve(reason);
+    };
+    const handleCancel = () => { cleanup(); resolve(null); };
+    const handleBg = (e) => { if (e.target === overlay) handleCancel(); };
+
+    okBtn.addEventListener('click', handleOk);
+    cancelBtn.addEventListener('click', handleCancel);
+    overlay.addEventListener('click', handleBg);
+    reasonEl.addEventListener('input', handleInput);
+  });
+}
+
 // =============================================================================
 // AUTH
 // =============================================================================
@@ -203,7 +248,15 @@ async function handleLogin(email, password) {
     initializeSocket();
     initializeHome();
     showScreen('screen-home');
-    loadOrders();
+
+    // Không load trackingOrder khi vừa login - để map trống
+    AppState.trackingOrder = null;
+
+    // Load orders nhưng KHÔNG tự động track
+    loadOrders({ silent: true, autoTrack: false });
+
+    // Chuyển sang tab Map (không có card)
+    switchTab('map');
   } catch (error) {
     console.error('Login error:', error);
     if (errorEl) {
@@ -230,7 +283,7 @@ function openLogoutModal() {
 function performLogout() {
   // Tắt trực tuyến + ngắt socket
   if (AppState.isOnline) {
-    api.patch('/drivers/status', { isOnline: false, is_online: false }).catch(() => {});
+    api.patch('/drivers/status', { isOnline: false, is_online: false }).catch(() => { });
   }
   socketService.stopLocationSharing();
   socketService.disconnectDriverSocket();
@@ -240,6 +293,7 @@ function performLogout() {
   AppState.user = null;
   AppState.orders = [];
   AppState.trackingOrder = null;
+  AppState.trackingCardCollapsed = false;
   AppState.manualOffline = false;
   destroyMap();
 
@@ -294,14 +348,13 @@ function initializeSocket() {
   const token = localStorage.getItem('token');
   socketService.connectDriverSocket(token, AppState.user.id, {
     onOrderAssigned: (data) => {
-      console.log('[Socket] New order:', data);
-      const order = data.order || data;
-      if (order && order.id) showNewOrderModal(order);
+      handleRealtimeAssignedOrder(data);
     },
     onOrderCancelled: (data) => {
       if (AppState.trackingOrder && AppState.trackingOrder.id === data.orderId) {
         showToast(`Đơn hàng #${data.orderId} đã bị hủy!`, 'warning');
         AppState.trackingOrder = null;
+        AppState.trackingCardCollapsed = false;
         renderTrackingCard();
         loadOrders();
       }
@@ -333,10 +386,7 @@ async function toggleOnlineStatus() {
       // Nếu người dùng vừa bật lại thì reset cờ manualOffline
       AppState.manualOffline = false;
       showToast('Đã bật chế độ trực tuyến', 'success');
-      // Nếu đang theo dõi đơn thì bắt đầu gửi vị trí
-      if (AppState.trackingOrder) {
-        socketService.startLocationSharing(AppState.trackingOrder.id);
-      }
+      socketService.startLocationSharing(AppState.trackingOrder?.id);
     } else {
       // User chủ động OFF -> đánh dấu để không bị tự động bật lại
       AppState.manualOffline = true;
@@ -389,6 +439,7 @@ async function loadOrders(opts = {}) {
 
     renderOrders();
 
+    // KHÔNG tự động track đơn khi autoTrack = false (ví dụ khi login)
     if (!autoTrack) return;
 
     // Xác định đơn đang active (pickup/delivering) - lấy đơn mới nhất
@@ -401,6 +452,7 @@ async function loadOrders(opts = {}) {
       const cur = AppState.trackingOrder;
       if (!cur || Number(cur.id) !== Number(active.id)) {
         AppState.trackingOrder = active;
+        AppState.trackingCardCollapsed = false;
         renderTrackingCard();
         // Nếu đang ở tab map thì vẽ lại route cho đơn mới
         if (AppState.activeTab === 'map') {
@@ -408,9 +460,7 @@ async function loadOrders(opts = {}) {
         }
       }
     } else if (AppState.trackingOrder) {
-      AppState.trackingOrder = null;
-      renderTrackingCard();
-      clearOrderLayers();
+      resetActiveTracking({ stopSharing: true, orderId: AppState.trackingOrder.id });
     }
 
     // Chỉ auto-bật trực tuyến khi:
@@ -420,10 +470,10 @@ async function loadOrders(opts = {}) {
     if (active && !AppState.isOnline && !AppState.manualOffline) {
       const tg = $('online-toggle');
       if (tg && !tg.checked) tg.checked = true;
-      // Đánh dấu pending để tránh vòng lặp
       AppState.isOnline = true;
       updateOnlineUI(true);
-      toggleOnlineStatus().catch(() => {});
+      api.patch('/drivers/status', { isOnline: true, is_online: true }).catch(() => { });
+      socketService.startLocationSharing(active.id);
     }
   } catch (err) {
     console.error('Load orders error:', err);
@@ -481,9 +531,8 @@ function buildOrderCard(order) {
         <span class="order-line-icon">👤</span>
         <div class="order-line-content">
           <span class="order-line-key">Khách hàng</span>
-          <span class="order-line-val name">${escapeHtml(receiverName)}${
-            phone ? `<a class="order-line-val phone" href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a>` : ''
-          }</span>
+          <span class="order-line-val name">${escapeHtml(receiverName)}${phone ? `<a class="order-line-val phone" href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a>` : ''
+    }</span>
         </div>
       </div>
 
@@ -530,6 +579,28 @@ function escapeHtml(s) {
   }[m]));
 }
 
+async function handleRealtimeAssignedOrder(data) {
+  console.log('[Socket] New order:', data);
+  const incoming = data?.order || data || {};
+  const incomingDriverId = incoming.driver_id ?? incoming.driverId;
+  if (incomingDriverId && AppState.user?.id && Number(incomingDriverId) !== Number(AppState.user.id)) {
+    return;
+  }
+
+  await loadOrders({ silent: true, autoTrack: false });
+
+  const incomingOrderId = incoming.id ?? incoming.orderId;
+  const order = AppState.orders.find((item) => Number(item.id) === Number(incomingOrderId)) || {
+    ...incoming,
+    id: incomingOrderId,
+    status: incoming.status || ORDER_STATUS.PICKUP
+  };
+
+  if (!order?.id) return;
+  showNewOrderModal(order);
+  showToast(`Bạn vừa được gán đơn #ORD-${order.id}`, 'info');
+}
+
 function onOrderCardClick(order) {
   // Nếu click lại chính đơn đang tracking thì chỉ chuyển tab
   if (AppState.trackingOrder && Number(AppState.trackingOrder.id) === Number(order.id)) {
@@ -537,12 +608,23 @@ function onOrderCardClick(order) {
     return;
   }
 
+  // Chỉ cho phép xem lộ trình cho đơn ở trạng thái pickup hoặc delivering
+  if (!['pickup', 'delivering'].includes(order.status)) {
+    showToast('Chỉ có thể xem lộ trình cho đơn đang lấy hàng hoặc đang giao', 'warning');
+    return;
+  }
+
   AppState.trackingOrder = order;
+  AppState.trackingCardCollapsed = false;
   renderTrackingCard();
+  socketService.joinOrderRoom(order.id);
+  if (AppState.isOnline) {
+    socketService.startLocationSharing(order.id);
+  }
   switchTab('map');
 
   // Sau khi bản đồ đã render thì vẽ route (trong switchTab đã gọi renderRouteForOrder rồi)
-  showToast(`Đã mở lộ trình cho đơn #ORD-${order.id}`, 'info');
+  //showToast(`Đã mở lộ trình cho đơn #ORD-${order.id}`, 'info');
 }
 
 // =============================================================================
@@ -550,20 +632,37 @@ function onOrderCardClick(order) {
 // =============================================================================
 function renderTrackingCard() {
   const card = $('tracking-info-card');
+  const miniFab = $('btn-expand-tracking');
+  const miniOrderId = $('tracking-mini-order-id');
   const empty = $('tab-map-empty');
   const fab = $('btn-locate-driver');
   const order = AppState.trackingOrder;
 
-  if (!order || !['pickup', 'delivering', 'assigned'].includes(order.status)) {
+  // Hiển thị card khi có đơn đang theo dõi (trạng thái active: pickup/delivering)
+  // KHÔNG hiển thị card cho đơn ASSIGNED (chờ tiếp nhận)
+  if (!order || !['pickup', 'delivering'].includes(order.status)) {
     card?.classList.add('hidden');
+    miniFab?.classList.add('hidden');
     if (empty) empty.classList.remove('hidden');
     fab?.classList.remove('has-tracking');
+    fab?.classList.remove('has-mini-tracking');
     return;
   }
 
   empty?.classList.add('hidden');
-  card?.classList.remove('hidden');
-  fab?.classList.add('has-tracking');
+  card?.classList.toggle('hidden', AppState.trackingCardCollapsed);
+  miniFab?.classList.toggle('hidden', !AppState.trackingCardCollapsed);
+  fab?.classList.toggle('has-tracking', !AppState.trackingCardCollapsed);
+  fab?.classList.toggle('has-mini-tracking', AppState.trackingCardCollapsed);
+
+  if (miniOrderId) miniOrderId.textContent = `#${order.id}`;
+
+  const collapseBtn = $('btn-collapse-tracking');
+  if (collapseBtn) {
+    collapseBtn.title = 'Thu nhỏ đơn hàng';
+    collapseBtn.setAttribute('aria-label', 'Thu nhỏ đơn hàng');
+    collapseBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path></svg>';
+  }
 
   $('tracking-order-id').textContent = `#ORD-${order.id}`;
   $('tracking-customer').textContent = order.customer_name || '—';
@@ -586,32 +685,20 @@ function renderTrackingActions(order) {
   if (!wrap) return;
   wrap.innerHTML = '';
 
-  if (order.status === ORDER_STATUS.ASSIGNED) {
-    // Tiếp nhận đơn
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-primary';
-    btn.innerHTML = '✓ Tiếp nhận đơn';
-    btn.onclick = () => confirmStatusChange(order.id, ORDER_STATUS.PICKUP, {
-      title: 'Tiếp nhận đơn hàng?',
-      message: 'Bạn sẽ chuyển sang trạng thái "Đang lấy hàng". Hệ thống sẽ bắt đầu ghi nhận vị trí của bạn.',
-      okText: 'Tiếp nhận',
-      variant: 'success'
-    });
-    wrap.appendChild(btn);
-  } else if (order.status === ORDER_STATUS.PICKUP) {
-    // Đã lấy hàng
+  if (order.status === ORDER_STATUS.PICKUP) {
+    // Đã lấy hàng (chuyển sang delivering - SMS sẽ được gửi tự động từ backend)
     const btn = document.createElement('button');
     btn.className = 'btn btn-success';
-    btn.innerHTML = '📦 Lấy hàng thành công';
+    btn.innerHTML = '✓ Đã lấy hàng';
     btn.onclick = () => confirmStatusChange(order.id, ORDER_STATUS.DELIVERING, {
-      title: 'Xác nhận lấy hàng thành công?',
-      message: `Bạn đã nhận được hàng cho đơn #${order.id} và sẵn sàng giao đến khách hàng.`,
+      title: 'Xác nhận đã lấy hàng?',
+      message: `Bạn đã nhận được hàng cho đơn #${order.id} và sẵn sàng giao đến khách hàng. SMS tracking sẽ được gửi đến khách hàng.`,
       okText: 'Xác nhận',
       variant: 'success'
     });
     wrap.appendChild(btn);
   } else if (order.status === ORDER_STATUS.DELIVERING) {
-    // Hoàn thành đơn (bước 1) - Sau đó hiện thêm Hủy/Xác nhận
+    // Hoàn thành đơn (bước 1: hiện nút "Hoàn thành", bước 2: hiện "Chưa"/"Xác nhận")
     if (!wrap.dataset.step) wrap.dataset.step = 'main';
 
     if (wrap.dataset.step === 'main') {
@@ -624,6 +711,7 @@ function renderTrackingActions(order) {
       };
       wrap.appendChild(btnComplete);
     } else {
+      // Bước xác nhận: Chưa / Xác nhận
       const row = document.createElement('div');
       row.className = 'btn-row';
 
@@ -671,9 +759,11 @@ async function confirmStatusChange(orderId, nextStatus, confirmOpts) {
         AppState.isOnline = true;
         updateOnlineUI(true);
         // Best-effort, không block flow
-        toggleOnlineStatus().catch(() => {});
+        toggleOnlineStatus().catch(() => { });
       }
       socketService.startLocationSharing(orderId);
+    } else if (![ORDER_STATUS.PICKUP, ORDER_STATUS.DELIVERING].includes(nextStatus)) {
+      socketService.stopLocationSharing();
     }
 
     // Cập nhật lại local state thay vì reload toàn bộ (silent)
@@ -683,6 +773,7 @@ async function confirmStatusChange(orderId, nextStatus, confirmOpts) {
     const updated = AppState.orders.find((o) => Number(o.id) === Number(orderId));
     if (updated) {
       AppState.trackingOrder = updated;
+      AppState.trackingCardCollapsed = false;
       renderTrackingCard();
       // Nếu đang ở tab map thì vẽ lại route
       if (AppState.activeTab === 'map') {
@@ -698,6 +789,19 @@ async function confirmStatusChange(orderId, nextStatus, confirmOpts) {
 // PROOF SCREEN
 // =============================================================================
 let selectedImageFile = null;
+
+/**
+ * Chuyển đổi File ảnh sang chuỗi base64 (data URL) để gửi qua JSON body.
+ * Backend lưu image_url dạng text nên có thể nhận trực tiếp base64 string.
+ */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 function openProofScreen(order) {
   selectedImageFile = null;
@@ -751,19 +855,20 @@ async function submitProof(success = true) {
     }
 
     try {
-      // Upload qua POST /:id/complete (multipart) - API backend đã chuyển route sang POST
-      const formData = new FormData();
-      formData.append('image_url', selectedImageFile);
-      formData.append('driver_notes', notes);
-      // Backend mong đợi image_url, driver_notes trong body
-      await api.postForm(`/orders/${orderId}/complete`, formData);
+      // Chuyển ảnh sang base64 và gửi dạng JSON (backend không dùng multer/multipart)
+      const imageBase64 = await fileToBase64(selectedImageFile);
+      await api.post(`/orders/${orderId}/complete`, {
+        image_url: imageBase64,
+        driver_notes: notes
+      });
 
       // Dọn tracking
       socketService.stopLocationSharing();
       socketService.leaveOrderRoom(Number(orderId));
       AppState.trackingOrder = null;
+      AppState.trackingCardCollapsed = false;
 
-      showToast('🎉 Hoàn thành đơn hàng!', 'success');
+      showToast('Hoàn thành đơn hàng!', 'success');
       await loadOrders();
       renderTrackingCard();
       showScreen('screen-home');
@@ -782,21 +887,24 @@ async function submitProof(success = true) {
       }
     }
   } else {
-    // Báo thất bại
-    const reason = prompt('Nhập lý do thất bại (ví dụ: Khách không liên lạc được, hẹn hôm sau...):');
-    if (reason === null) return;
-    if (!reason.trim()) {
-      showToast('Vui lòng nhập lý do!', 'warning');
+    if (!selectedImageFile) {
+      showToast('Vui lòng chụp ảnh hoặc chọn ảnh minh chứng!', 'warning');
       return;
     }
+
+    const reason = await showFailDeliveryModal(orderId);
+    if (!reason) return;
+
     try {
-      await api.patch(`/orders/${orderId}/status`, { status: ORDER_STATUS.FAILED, reason: reason.trim() });
-      socketService.stopLocationSharing();
-      socketService.leaveOrderRoom(Number(orderId));
-      AppState.trackingOrder = null;
+      const imageBase64 = await fileToBase64(selectedImageFile);
+      await api.patch(`/orders/${orderId}/status`, {
+        status: ORDER_STATUS.FAILED,
+        reason,
+        image_url: imageBase64
+      });
+      resetActiveTracking({ stopSharing: true, orderId });
       showToast('Đã báo cáo giao thất bại', 'info');
       await loadOrders();
-      renderTrackingCard();
       showScreen('screen-home');
       switchTab('orders');
     } catch (err) {
@@ -865,13 +973,13 @@ function destroyMap() {
 function clearOrderLayers() {
   if (!AppState.map) return;
   AppState.destMarkers.forEach((m) => {
-    try { AppState.map.removeLayer(m); } catch {}
+    try { AppState.map.removeLayer(m); } catch { }
   });
   AppState.routeLayers.forEach((l) => {
-    try { AppState.map.removeLayer(l); } catch {}
+    try { AppState.map.removeLayer(l); } catch { }
   });
   AppState.pickupMarkers.forEach((m) => {
-    try { AppState.map.removeLayer(m); } catch {}
+    try { AppState.map.removeLayer(m); } catch { }
   });
   AppState.destMarkers = [];
   AppState.routeLayers = [];
@@ -949,9 +1057,9 @@ async function drawRoute(fromLatLng, toLatLng) {
     const coords = route.geometry.coordinates.map((c) => [c[1], c[0]]);
 
     const polyline = L.polyline(coords, {
-      color: '#10b981',
+      color: '#3b82f6',
       weight: 6,
-      opacity: .85,
+      opacity: 0.75,
       lineCap: 'round',
       lineJoin: 'round'
     }).addTo(AppState.map);
@@ -969,6 +1077,36 @@ async function drawRoute(fromLatLng, toLatLng) {
     console.error('OSRM error:', e);
     return null;
   }
+}
+
+/**
+ * Lấy vị trí hiện tại với chiến lược fallback để giảm lỗi timeout (code 3).
+ * Thử độ chính xác cao trước (GPS thật); nếu timeout thì tự thử lại ngay với
+ * độ chính xác thấp hơn (dùng wifi/cell - phản hồi nhanh hơn, ít bị timeout)
+ * trước khi báo lỗi cho người dùng.
+ */
+function getCurrentPositionWithFallback(onSuccess, onError) {
+  if (!navigator.geolocation) {
+    onError({ code: 0, message: 'Thiết bị không hỗ trợ định vị GPS' });
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    onSuccess,
+    (err) => {
+      // Timeout hoặc không xác định được vị trí -> thử lại với cấu hình nhẹ hơn
+      if (err.code === err.TIMEOUT || err.code === 3) {
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          (err2) => onError(err2),
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 }
+        );
+      } else {
+        onError(err);
+      }
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+  );
 }
 
 async function renderRouteForOrder(order) {
@@ -999,7 +1137,7 @@ async function renderRouteForOrder(order) {
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(
+  getCurrentPositionWithFallback(
     async (pos) => {
       const driverLatLng = [pos.coords.latitude, pos.coords.longitude];
       setDriverMarker(driverLatLng);
@@ -1017,12 +1155,10 @@ async function renderRouteForOrder(order) {
       startWatchDriver();
     },
     (err) => {
-      console.warn('Geolocation error:', err);
       // Fallback: chỉ đặt marker khách và zoom vào đó
       map.setView(customerLatLng, 13);
       showToast('Không lấy được vị trí - ' + (err.message || ''), 'warning');
-    },
-    { enableHighAccuracy: true, timeout: 10000 }
+    }
   );
 }
 
@@ -1034,12 +1170,8 @@ function startWatchDriver() {
     (pos) => {
       const ll = [pos.coords.latitude, pos.coords.longitude];
       setDriverMarker(ll);
-      // Realtime send location
-      if (AppState.trackingOrder && (AppState.trackingOrder.status === 'pickup' || AppState.trackingOrder.status === 'delivering')) {
-        api.post(`/orders/${AppState.trackingOrder.id}/locations`, { lat: ll[0], lng: ll[1] }).catch(() => {});
-      }
     },
-    () => {},
+    () => { },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
   );
 }
@@ -1061,7 +1193,7 @@ function locateDriverOnMap(onlyIfNoMarker = false) {
   const fab = $('btn-locate-driver');
   if (fab) fab.classList.add('is-loading');
 
-  navigator.geolocation.getCurrentPosition(
+  getCurrentPositionWithFallback(
     (pos) => {
       const ll = [pos.coords.latitude, pos.coords.longitude];
       setDriverMarker(ll);
@@ -1070,9 +1202,8 @@ function locateDriverOnMap(onlyIfNoMarker = false) {
     },
     (err) => {
       if (fab) fab.classList.remove('is-loading');
-      showToast('Không lấy được vị trí: ' + (err.message || ''), 'warning');
-    },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      showToast('Không lấy được vị trí: ' + (err.message || 'Vui lòng kiểm tra GPS/kết nối'), 'warning');
+    }
   );
 }
 
@@ -1096,29 +1227,10 @@ function showNewOrderModal(order) {
   const handleOk = async () => {
     cleanup();
     try {
-      await api.patch(`/orders/${order.id}/status`, { status: ORDER_STATUS.PICKUP });
-      showToast('Đã tiếp nhận đơn hàng!', 'success');
-      socketService.joinOrderRoom(order.id);
-      // Tự bật online nếu user chưa chủ động OFF
-      if (!AppState.isOnline && !AppState.manualOffline) {
-        const tg = $('online-toggle');
-        if (tg && !tg.checked) tg.checked = true;
-        AppState.isOnline = true;
-        updateOnlineUI(true);
-        toggleOnlineStatus().catch(() => {});
-      }
-      socketService.startLocationSharing(order.id);
-      // Tải lại danh sách silent để cập nhật order
-      await loadOrders({ silent: true, autoTrack: true });
-      const found = AppState.orders.find((o) => Number(o.id) === Number(order.id));
-      if (found) {
-        AppState.trackingOrder = found;
-        renderTrackingCard();
-        // Chuyển sang tab map để tài xế thấy lộ trình luôn
-        switchTab('map');
-      }
+      await loadOrders({ silent: true, autoTrack: false });
+      switchTab('orders');
     } catch (e) {
-      showToast('Lỗi tiếp nhận đơn: ' + (e.message || ''), 'error');
+      showToast('Lỗi tải danh sách đơn: ' + (e.message || ''), 'error');
     }
   };
   const handleCancel = () => cleanup();
@@ -1132,6 +1244,19 @@ function showNewOrderModal(order) {
 async function fetchOrderById(id) {
   const found = AppState.orders.find((o) => Number(o.id) === Number(id));
   return found || null;
+}
+
+function resetActiveTracking({ stopSharing = false, orderId = null } = {}) {
+  if (stopSharing) {
+    socketService.stopLocationSharing();
+  }
+  if (orderId) {
+    socketService.leaveOrderRoom(Number(orderId));
+  }
+  AppState.trackingOrder = null;
+  AppState.trackingCardCollapsed = false;
+  renderTrackingCard();
+  clearOrderLayers();
 }
 
 // =============================================================================
@@ -1235,6 +1360,26 @@ function initializeEventListeners() {
   $('btn-locate-driver')?.addEventListener('click', () => {
     ensureMap();
     locateDriverOnMap(false);
+  });
+
+  // ============= Thu nhỏ/mở rộng tracking card
+  $('btn-collapse-tracking')?.addEventListener('click', () => {
+    AppState.trackingCardCollapsed = true;
+    renderTrackingCard();
+  });
+
+  $('btn-expand-tracking')?.addEventListener('click', () => {
+    AppState.trackingCardCollapsed = false;
+    renderTrackingCard();
+  });
+
+  // ============= Đóng tracking card (nút X)
+  $('btn-close-tracking')?.addEventListener('click', () => {
+    AppState.trackingOrder = null;
+    AppState.trackingCardCollapsed = false;
+    renderTrackingCard();
+    clearOrderLayers();
+    //showToast('Đã ẩn card đơn hàng', 'info');
   });
 
   // ============= Logout button

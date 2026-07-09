@@ -3,7 +3,7 @@ import * as bcrypt from 'bcrypt'
 import { Order } from './Order';
 import { DriverProfile } from './DriverProfile'
 import { RouteHistory } from "./RouteHistory";
-
+import { DeliveryProof } from "./DeliveryProof";
 @Entity('users')
 export class User {
     @PrimaryGeneratedColumn({ type: 'bigint' })
@@ -55,4 +55,7 @@ export class User {
 
     @OneToMany(() => RouteHistory, (history) => history.driver)
     route_histories: RouteHistory[];
+
+    @OneToMany(() => DeliveryProof, (proof) => proof.driver)
+    delivery_proofs: DeliveryProof[];
 }
