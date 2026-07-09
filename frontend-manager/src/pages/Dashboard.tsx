@@ -35,10 +35,11 @@ interface DriverData {
     lat: number;
     lng: number;
     status: string;
-    active_order_id?: string;
+    active_order_id?: string | number | null;
     full_name?: string;
     vehicle_type?: string;
     license_plate?: string;
+    last_ping?: number;
 }
 
 interface RouteHistory {
@@ -75,7 +76,6 @@ const Dashboard = () => {
     const [isRouteHistoryModalOpen, setIsRouteHistoryModalOpen] = useState(false);
     const [isDriverHistoryModalOpen, setIsDriverHistoryModalOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-    const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
     const [routeHistory, setRouteHistory] = useState<RouteHistory[]>([]);
     const [driverStats, setDriverStats] = useState<any[]>([]);
 
@@ -95,7 +95,7 @@ const Dashboard = () => {
     // Filter states
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedDateRange, setSelectedDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+    const [selectedDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
     const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
     // State quản lý Modal Gán đơn
@@ -256,14 +256,20 @@ const Dashboard = () => {
             setDriversData((prev) => {
                 const next = { ...prev };
                 list.forEach((d) => {
-                    next[String(d.id)] = {
-                        lat: d.lat,
-                        lng: d.lng,
+                    const driverId = String(d.id);
+                    const incomingPing = Number(d.last_ping || 0);
+                    const currentPing = Number(next[driverId]?.last_ping || 0);
+                    if (currentPing > incomingPing) return;
+
+                    next[driverId] = {
+                        lat: Number(d.lat),
+                        lng: Number(d.lng),
                         status: d.status,
                         active_order_id: d.active_order_id ?? null,
                         full_name: d.full_name,
                         vehicle_type: d.vehicle_type,
-                        license_plate: d.license_plate
+                        license_plate: d.license_plate,
+                        last_ping: incomingPing || Date.now()
                     };
                 });
                 return next;
@@ -288,34 +294,44 @@ const Dashboard = () => {
         }, 10000);
 
         socket.on('LOCATION_UPDATE', (data) => {
-            setDriversData(prev => ({
-                ...prev,
-                [data.driverId]: {
-                    ...(prev[data.driverId] || {}),
-                    lat: data.lat,
-                    lng: data.lng,
-                    status: data.status,
-                    active_order_id: data.active_order_id
-                }
-            }));
+            const driverId = String(data.driverId);
+            const incomingPing = Number(data.timestamp || Date.now());
+            setDriversData(prev => {
+                const currentPing = Number(prev[driverId]?.last_ping || 0);
+                if (currentPing > incomingPing) return prev;
+
+                return {
+                    ...prev,
+                    [driverId]: {
+                        ...(prev[driverId] || {}),
+                        lat: Number(data.lat),
+                        lng: Number(data.lng),
+                        status: data.status,
+                        active_order_id: data.active_order_id,
+                        last_ping: incomingPing
+                    }
+                };
+            });
         });
 
         socket.on('DRIVER_STATUS_UPDATE', (data) => {
+            const driverId = String(data.driverId);
             setDriversData(prev => {
                 if (data.is_online) {
+                    const current = prev[driverId];
+                    if (!current) return prev;
+
                     return {
                         ...prev,
-                        [data.driverId]: {
-                            ...(prev[data.driverId] || {}),
-                            lat: prev[data.driverId]?.lat ?? 10.762622,
-                            lng: prev[data.driverId]?.lng ?? 106.660172,
-                            status: data.status || 'idle',
-                            active_order_id: data.active_order_id ?? prev[data.driverId]?.active_order_id ?? null
+                        [driverId]: {
+                            ...current,
+                            status: data.status || current.status || 'idle',
+                            active_order_id: data.active_order_id ?? current.active_order_id ?? null
                         }
                     };
                 }
                 const next = { ...prev };
-                delete next[data.driverId];
+                delete next[driverId];
                 return next;
             });
         });
@@ -382,12 +398,6 @@ const Dashboard = () => {
         } catch (error) {
             toast.error("Không thể tải lịch sử lộ trình");
         }
-    };
-
-    // Open driver history modal
-    const openDriverHistory = (driverId: number) => {
-        setSelectedDriverId(driverId);
-        setIsDriverHistoryModalOpen(true);
     };
 
     // 4.3 Mở Modal Gán Đơn và lấy danh sách tài xế

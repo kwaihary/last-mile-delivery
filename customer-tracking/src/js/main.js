@@ -123,18 +123,19 @@ function initMap() {
   }).addTo(map);
 
   // Route glow (halo mờ phía dưới) + route chính
+  // Đồng bộ màu với Dashboard/LiveMap (frontend-manager): #3b82f6
   routeGlow = L.polyline([], {
-    color: '#2563eb',
-    weight: 10,
-    opacity: 0.18,
+    color: '#3b82f6',
+    weight: 12,
+    opacity: 0.15,
     lineCap: 'round',
     lineJoin: 'round',
   }).addTo(map);
 
   routePolyline = L.polyline([], {
-    color: '#2563eb',
-    weight: 5,
-    opacity: 0.9,
+    color: '#3b82f6',
+    weight: 6,
+    opacity: 0.75,
     lineCap: 'round',
     lineJoin: 'round',
   }).addTo(map);

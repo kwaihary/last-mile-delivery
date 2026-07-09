@@ -127,11 +127,16 @@ export class OrderController {
                 if (io) {
                     io.emit('ORDER_ASSIGNED', {
                         orderId: order.id,
+                        id: order.id,
+                        driver_id,
                         status: 'pickup',
                         address: order.address,
+                        latitude: order.latitude,
+                        longitude: order.longitude,
                         customer_name: order.customer_name,
                         customer_phone: order.customer_phone,
-                        ship_cod: order.ship_cod
+                        ship_cod: order.ship_cod,
+                        order_notes: order.order_notes
                     });
                 }
             } catch {}
@@ -147,7 +152,7 @@ export class OrderController {
         try {
             const orderId = Number(req.params.id);
             const driverId = req.user.id;
-            const { status } = req.body;
+            const { status, reason, driver_notes, image_url } = req.body;
 
             let order = await orderRepo.findOneBy({ id: orderId });
             if (!order) return sendResponse(res, 404, null, '', "Không tìm thấy đơn hàng");
@@ -175,7 +180,33 @@ export class OrderController {
                 order.started_at = new Date();
             }
 
+            if (status === 'failed') {
+                const failureReason = String(reason || driver_notes || '').trim();
+                if (!failureReason) {
+                    return sendResponse(res, 400, null, '', "Vui lòng nhập lý do giao thất bại");
+                }
+                order.complete_at = new Date();
+
+                const existingProof = await proofRepo.findOneBy({ order_id: orderId });
+                if (!existingProof) {
+                    const failureProof = proofRepo.create({
+                        order_id: orderId,
+                        driver_id: driverId,
+                        image_url: image_url || 'FAILED_DELIVERY_NO_IMAGE',
+                        driver_notes: failureReason
+                    });
+                    await proofRepo.save(failureProof);
+                }
+            }
+
             const savedOrder = await orderRepo.save(order);
+
+            if (status === 'failed') {
+                await redisClient.hset(`driver:status:${driverId}`,
+                    'current_status', 'idle',
+                    'active_order_id', ''
+                );
+            }
 
             // Gửi SMS khi bắt đầu giao hàng (pickup → delivering)
             if (status === 'delivering' && previousStatus === 'pickup') {

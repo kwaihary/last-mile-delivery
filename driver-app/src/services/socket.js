@@ -19,6 +19,19 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const LOCATION_UPDATE_INTERVAL = 10000; // 10 seconds
 let locationIntervalId = null;
+let latestPosition = null;
+let hasSentInitialLocation = false;
+
+function sendLatestLocation() {
+  if (!latestPosition) return;
+  const { latitude: lat, longitude: lng, accuracy, speed, heading } = latestPosition.coords;
+  sendLocationUpdate(lat, lng, {
+    orderId: currentOrderId,
+    accuracy,
+    speed,
+    heading
+  });
+}
 
 // =============================================================================
 // SOCKET CONNECTION
@@ -210,8 +223,14 @@ export function leaveOrderRoom(orderId) {
  * Bắt đầu chia sẻ vị trí GPS
  */
 export function startLocationSharing(orderId) {
+  if (orderId) {
+    currentOrderId = orderId;
+    localStorage.setItem('currentOrderId', String(orderId));
+  }
+
   if (locationWatchId !== null) {
-    console.log('[Location] Already watching');
+    console.log('[Location] Already watching, updated order:', currentOrderId || 'none');
+    sendLatestLocation();
     return;
   }
 
@@ -220,13 +239,7 @@ export function startLocationSharing(orderId) {
     return;
   }
 
-  // Store order ID
-  if (orderId) {
-    currentOrderId = orderId;
-    localStorage.setItem('currentOrderId', String(orderId));
-  }
-
-  console.log('[Location] Starting watch...');
+  console.log('[Location] Starting 10s location loop...');
 
   // High accuracy for delivery tracking
   const geoOptions = {
@@ -235,18 +248,11 @@ export function startLocationSharing(orderId) {
     timeout: 10000
   };
 
-  // Watch position
-  locationWatchId = navigator.geolocation.watchPosition(
+  navigator.geolocation.getCurrentPosition(
     (position) => {
-      const { latitude: lat, longitude: lng, accuracy, speed, heading } = position.coords;
-      
-      // Send to server
-      sendLocationUpdate(lat, lng, {
-        orderId: orderId || currentOrderId,
-        accuracy,
-        speed,
-        heading
-      });
+      latestPosition = position;
+      hasSentInitialLocation = true;
+      sendLatestLocation();
     },
     (error) => {
       handleGeolocationError(error);
@@ -254,17 +260,21 @@ export function startLocationSharing(orderId) {
     geoOptions
   );
 
-  // Also send via interval as backup (in case watch doesn't fire)
-  locationIntervalId = setInterval(() => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude: lat, longitude: lng } = position.coords;
-        sendLocationUpdate(lat, lng, { orderId: orderId || currentOrderId });
-      },
-      () => {}, // Silent fail for interval attempts
-      { maximumAge: 10000 }
-    );
-  }, LOCATION_UPDATE_INTERVAL);
+  locationWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      latestPosition = position;
+      if (!hasSentInitialLocation) {
+        hasSentInitialLocation = true;
+      }
+      sendLatestLocation();
+    },
+    (error) => {
+      handleGeolocationError(error);
+    },
+    geoOptions
+  );
+
+  locationIntervalId = setInterval(sendLatestLocation, LOCATION_UPDATE_INTERVAL);
 }
 
 /**
@@ -272,9 +282,11 @@ export function startLocationSharing(orderId) {
  */
 export function stopLocationSharing() {
   if (locationWatchId !== null) {
-    navigator.geolocation.clearWatch(locationWatchId);
+    if (typeof locationWatchId === 'number') {
+      navigator.geolocation.clearWatch(locationWatchId);
+    }
     locationWatchId = null;
-    console.log('[Location] Stopped watch');
+    console.log('[Location] Stopped location loop');
   }
   
   if (locationIntervalId !== null) {
@@ -283,6 +295,8 @@ export function stopLocationSharing() {
     console.log('[Location] Stopped interval');
   }
   
+  latestPosition = null;
+  hasSentInitialLocation = false;
   localStorage.removeItem('currentOrderId');
 }
 
@@ -295,9 +309,7 @@ export function sendLocationUpdate(lat, lng, options = {}) {
     return;
   }
   
-  const driverId = getDriverIdFromStorage();
   const payload = {
-    driverId,
     lat,
     lng,
     orderId: options.orderId || currentOrderId,
@@ -333,15 +345,6 @@ export function sendSingleLocation() {
 // =============================================================================
 // HELPERS
 // =============================================================================
-function getDriverIdFromStorage() {
-  try {
-    const user = JSON.parse(localStorage.getItem('driverUser') || '{}');
-    return user.id;
-  } catch {
-    return null;
-  }
-}
-
 function handleGeolocationError(error) {
   switch (error.code) {
     case error.PERMISSION_DENIED:

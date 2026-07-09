@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -10,10 +10,11 @@ interface DriverData {
     lat: number;
     lng: number;
     status: string;
-    active_order_id?: string;
+    active_order_id?: string | number | null;
     full_name?: string;
     vehicle_type?: string;
     license_plate?: string;
+    last_ping?: number;
 }
 
 interface Order {
@@ -47,22 +48,27 @@ const FitBounds = ({ positions }: { positions: [number, number][] }) => {
     return null;
 };
 
-// Debounce helper
-function useDebouncedValue<T>(value: T, delay: number): T {
-    const [debounced, setDebounced] = useState<T>(value);
-    useEffect(() => {
-        const timer = setTimeout(() => setDebounced(value), delay);
-        return () => clearTimeout(timer);
-    }, [value, delay]);
-    return debounced;
-}
+const ROUTE_REFRESH_DISTANCE_METERS = 120;
+const routeCache = new Map<string, { coordinates: [number, number][]; info: { distanceKm: string; durationMin: number } }>();
+
+const toRadians = (value: number) => value * Math.PI / 180;
+
+const distanceMeters = (a: [number, number], b: [number, number]) => {
+    const earthRadius = 6371000;
+    const dLat = toRadians(b[0] - a[0]);
+    const dLng = toRadians(b[1] - a[1]);
+    const lat1 = toRadians(a[0]);
+    const lat2 = toRadians(b[0]);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return 2 * earthRadius * Math.asin(Math.sqrt(h));
+};
 
 const LiveMap: React.FC<LiveMapProps> = ({ driversData, ordersData, selectedOrderId, onClearSelectedOrder }) => {
     const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
     const [isLoadingRoute, setIsLoadingRoute] = useState(false);
     const [routeInfo, setRouteInfo] = useState<{ distanceKm: string; durationMin: number } | null>(null);
-    const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const lastFetchKeyRef = useRef<string>('');
+    const activeFetchRef = useRef<AbortController | null>(null);
+    const lastRouteRequestRef = useRef<{ orderId: number; from: [number, number]; to: [number, number] } | null>(null);
 
     const selectedOrder = useMemo(
         () => (selectedOrderId ? ordersData.find(o => o.id === selectedOrderId) : null),
@@ -74,84 +80,120 @@ const LiveMap: React.FC<LiveMapProps> = ({ driversData, ordersData, selectedOrde
         return driversData[String(selectedOrder.driver_id)] ?? null;
     }, [selectedOrder, driversData]);
 
-    // Debounce driver location để tránh spam OSRM khi driver đang di chuyển
-    const debouncedDriverLat = useDebouncedValue(activeDriver?.lat ?? null, 5000);
-    const debouncedDriverLng = useDebouncedValue(activeDriver?.lng ?? null, 5000);
-
-    // Fetch OSRM route: khi selectedOrderId thay đổi hoặc vị trí driver thay đổi (debounced)
-    useEffect(() => {
-        // Xóa route nếu không có đơn được chọn
-        if (!selectedOrderId || !selectedOrder) {
-            setRouteCoordinates([]);
-            setRouteInfo(null);
+    const fetchRoute = useCallback(async (orderId: number, from: [number, number], to: [number, number]) => {
+        const cacheKey = `${orderId}-${from[0].toFixed(3)}-${from[1].toFixed(3)}-${to[0].toFixed(4)}-${to[1].toFixed(4)}`;
+        const cached = routeCache.get(cacheKey);
+        if (cached) {
+            setRouteCoordinates(cached.coordinates);
+            setRouteInfo(cached.info);
+            setIsLoadingRoute(false);
             return;
         }
 
-        // Chỉ hiển thị route cho đơn đang active
-        if (!['pickup', 'delivering'].includes(selectedOrder.status)) {
-            setRouteCoordinates([]);
-            setRouteInfo(null);
-            return;
-        }
-
-        // Cần có driver và vị trí hợp lệ
-        if (!activeDriver || debouncedDriverLat === null || debouncedDriverLng === null) {
-            setRouteCoordinates([]);
-            setRouteInfo(null);
-            return;
-        }
-
-        const destLat = Number(selectedOrder.latitude);
-        const destLng = Number(selectedOrder.longitude);
-        if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) return;
-
-        // Tạo key để tránh fetch trùng
-        const fetchKey = `${selectedOrderId}-${debouncedDriverLat.toFixed(4)}-${debouncedDriverLng.toFixed(4)}-${destLat.toFixed(4)}-${destLng.toFixed(4)}`;
-        if (fetchKey === lastFetchKeyRef.current) return;
-        lastFetchKeyRef.current = fetchKey;
-
-        if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+        activeFetchRef.current?.abort();
+        const controller = new AbortController();
+        activeFetchRef.current = controller;
 
         setIsLoadingRoute(true);
-        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${debouncedDriverLng},${debouncedDriverLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`;
 
-        fetch(osrmUrl)
-            .then(res => res.json())
-            .then(data => {
-                if (data.code === 'Ok' && data.routes?.length > 0) {
-                    const route = data.routes[0];
-                    const coords = route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number]);
-                    setRouteCoordinates(coords);
-                    setRouteInfo({
-                        distanceKm: (route.distance / 1000).toFixed(1),
-                        durationMin: Math.max(1, Math.round(route.duration / 60))
-                    });
-                } else {
-                    setRouteCoordinates([]);
-                    setRouteInfo(null);
-                }
-            })
-            .catch(err => {
-                console.error('[LiveMap] OSRM fetch error:', err);
-                setRouteCoordinates([]);
+        try {
+            const res = await fetch(osrmUrl, { signal: controller.signal });
+            const data = await res.json();
+            if (data.code === 'Ok' && data.routes?.length > 0) {
+                const route = data.routes[0];
+                const coordinates = route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number]);
+                const info = {
+                    distanceKm: (route.distance / 1000).toFixed(1),
+                    durationMin: Math.max(1, Math.round(route.duration / 60))
+                };
+                routeCache.set(cacheKey, { coordinates, info });
+                setRouteCoordinates(coordinates);
+                setRouteInfo(info);
+            } else {
+                setRouteCoordinates([from, to]);
                 setRouteInfo(null);
-            })
-            .finally(() => setIsLoadingRoute(false));
+            }
+        } catch (err: any) {
+            if (err?.name !== 'AbortError') {
+                console.error('[LiveMap] OSRM fetch error:', err);
+                setRouteCoordinates([from, to]);
+                setRouteInfo(null);
+            }
+        } finally {
+            if (activeFetchRef.current === controller) {
+                activeFetchRef.current = null;
+                setIsLoadingRoute(false);
+            }
+        }
+    }, []);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedOrderId, debouncedDriverLat, debouncedDriverLng]);
+    useEffect(() => {
+        if (!selectedOrderId || !selectedOrder || !['pickup', 'delivering'].includes(selectedOrder.status)) {
+            setRouteCoordinates([]);
+            setRouteInfo(null);
+            lastRouteRequestRef.current = null;
+            activeFetchRef.current?.abort();
+            return;
+        }
+
+        if (!activeDriver) {
+            setRouteCoordinates([]);
+            setRouteInfo(null);
+            lastRouteRequestRef.current = null;
+            return;
+        }
+
+        const driverLat = Number(activeDriver.lat);
+        const driverLng = Number(activeDriver.lng);
+        const destLat = Number(selectedOrder.latitude);
+        const destLng = Number(selectedOrder.longitude);
+        if (![driverLat, driverLng, destLat, destLng].every(Number.isFinite)) return;
+
+        const from: [number, number] = [driverLat, driverLng];
+        const to: [number, number] = [destLat, destLng];
+        const last = lastRouteRequestRef.current;
+        if (
+            last &&
+            last.orderId === selectedOrderId &&
+            distanceMeters(last.from, from) < ROUTE_REFRESH_DISTANCE_METERS &&
+            distanceMeters(last.to, to) < 5
+        ) {
+            return;
+        }
+
+        lastRouteRequestRef.current = { orderId: selectedOrderId, from, to };
+        fetchRoute(selectedOrderId, from, to);
+    }, [selectedOrderId, selectedOrder, activeDriver, fetchRoute]);
+
+    const activeOrderByDriverId = useMemo(() => {
+        const map = new Map<string, Order>();
+        ordersData.forEach((order) => {
+            if (!order.driver_id || !['pickup', 'delivering'].includes(order.status)) return;
+            const current = map.get(String(order.driver_id));
+            if (!current || order.id > current.id) {
+                map.set(String(order.driver_id), order);
+            }
+        });
+        return map;
+    }, [ordersData]);
 
     const driverMarkers = useMemo(() => {
-        return Object.entries(driversData).map(([driverId, data]) => ({
-            driverId,
-            position: [data.lat, data.lng] as [number, number],
-            status: data.status,
-            activeOrderId: data.active_order_id,
-            fullName: data.full_name,
-            vehicleType: data.vehicle_type,
-            licensePlate: data.license_plate
-        }));
-    }, [driversData]);
+        return Object.entries(driversData).map(([driverId, data]) => {
+            const activeOrder = activeOrderByDriverId.get(driverId);
+            const effectiveStatus = activeOrder?.status === 'delivering' ? 'delivering' : 'idle';
+
+            return {
+                driverId,
+                position: [data.lat, data.lng] as [number, number],
+                status: effectiveStatus,
+                activeOrderId: activeOrder?.id ? String(activeOrder.id) : undefined,
+                fullName: data.full_name,
+                vehicleType: data.vehicle_type,
+                licensePlate: data.license_plate
+            };
+        });
+    }, [driversData, activeOrderByDriverId]);
 
     // Destination marker icon
     const destIcon = useMemo(() => L.divIcon({

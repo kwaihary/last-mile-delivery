@@ -108,6 +108,7 @@ export class UserController {
                 // Lấy active_order_id từ Redis hash
                 const activeOrderId = await redisClient.hget(`driver:status:${driver.id}`, 'active_order_id');
                 const currentStatus = await redisClient.hget(`driver:status:${driver.id}`, 'current_status');
+                const lastPing = await redisClient.hget(`driver:status:${driver.id}`, 'last_ping');
 
                 result.push({
                     id: driver.id,
@@ -121,7 +122,8 @@ export class UserController {
                     lng: pos ? Number(pos[0]) : 106.660172,
                     has_gps: !!pos,
                     active_order_id: activeOrderId ? Number(activeOrderId) : null,
-                    status: currentStatus || 'idle'
+                    status: currentStatus || 'idle',
+                    last_ping: lastPing ? Number(lastPing) : null
                 });
             }
 

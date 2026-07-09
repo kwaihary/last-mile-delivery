@@ -4,29 +4,32 @@ import redisClient from '../config/redis';
 export const initSockets = (io: Server) => {
 
     io.on('connection', (socket) => {
-        const userId = socket.data.user?.id;
+        const userId = socket.data.user?.id ?? socket.data.user?.userId;
         console.log(`📡 Thiết bị kết nối Gateway thành công: ${socket.id} (user: ${userId || 'anonymous'})`);
 
         // ── Tài xế gửi vị trí GPS realtime ──
         socket.on('driver:share-location', async (data: { orderId?: number, driverId?: number, lat: number, lng: number, trackingToken?: string }) => {
-            const { orderId, driverId, lat, lng, trackingToken } = data;
+            const { orderId, lat, lng, trackingToken } = data;
             if (!lat || !lng) return;
 
             try {
                 const currentTimestamp = String(Math.floor(Date.now() / 1000));
 
                 // Lưu vị trí tài xế vào Redis GEO
-                const resolvedDriverId = driverId || userId;
-                if (resolvedDriverId) {
-                    await redisClient.geoadd('drivers:locations', lng, lat, String(resolvedDriverId));
-                }
+                const resolvedDriverId = userId;
+                if (!resolvedDriverId) return;
+
+                await redisClient.geoadd('drivers:locations', lng, lat, String(resolvedDriverId));
+
+                const activeOrderId = orderId ? String(orderId) : '';
+                const currentStatus = orderId ? 'delivering' : 'idle';
 
                 // Lưu trạng thái tài xế
                 if (resolvedDriverId) {
                     await redisClient.hset(
                         `driver:status:${resolvedDriverId}`,
-                        'current_status', 'delivering',
-                        'active_order_id', String(orderId || ''),
+                        'current_status', currentStatus,
+                        'active_order_id', activeOrderId,
                         'last_ping', currentTimestamp
                     );
                 }
@@ -42,8 +45,9 @@ export const initSockets = (io: Server) => {
                     driverId: resolvedDriverId,
                     lat,
                     lng,
-                    status: 'delivering',
-                    active_order_id: orderId || null
+                    status: currentStatus,
+                    active_order_id: orderId || null,
+                    timestamp: Number(currentTimestamp) * 1000
                 });
 
                 // Gửi riêng đến customer đang theo dõi order này (qua room)
@@ -52,8 +56,9 @@ export const initSockets = (io: Server) => {
                         driverId: resolvedDriverId,
                         lat,
                         lng,
-                        status: 'delivering',
-                        active_order_id: orderId || null
+                        status: currentStatus,
+                        active_order_id: orderId || null,
+                        timestamp: Number(currentTimestamp) * 1000
                     });
                 }
 
@@ -63,7 +68,8 @@ export const initSockets = (io: Server) => {
                         driverId: resolvedDriverId,
                         lat,
                         lng,
-                        status: 'delivering'
+                        status: currentStatus,
+                        timestamp: Number(currentTimestamp) * 1000
                     });
                 }
 
