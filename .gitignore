@@ -10,3 +10,4 @@ coverage
 .tmp_extract_docx.py
 .DS_Store
 Thumbs.db
+migrations
