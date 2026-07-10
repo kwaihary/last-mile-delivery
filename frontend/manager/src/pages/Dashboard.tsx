@@ -285,7 +285,7 @@ const Dashboard = () => {
         fetchOnlineDrivers();
         fetchDriverStats();
 
-        const socket: Socket = io(import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-vy8z.onrender.com' : 'http://localhost:5000'), {
+        const socket: Socket = io(import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-l7y0.onrender.com' : 'http://localhost:5000'), {
             query: { token: localStorage.getItem('accessToken') }
         });
 

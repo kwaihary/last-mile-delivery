@@ -10,4 +10,4 @@ services:
       - key: NODE_ENV
         value: production
       - key: PUBLIC_BASE_URL
-        value: https://last-mile-delivery-vy8z.onrender.com
+        value: https://last-mile-delivery-l7y0.onrender.com
