@@ -4,6 +4,7 @@ build
 coverage
 .env
 .env.*
+!**/.env.production
 *.local
 .vite
 .tmp_extract_docx.py
