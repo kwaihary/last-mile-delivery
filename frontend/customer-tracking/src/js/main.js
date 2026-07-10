@@ -252,7 +252,7 @@ function updateTraveledDistanceDisplay() {
 
 // ── Order loading with retry ────────────────────────────────────────────────
 async function loadOrder() {
-  const apiBase = `${location.protocol}//${location.hostname}${
+  const apiBase = window.__API_BASE_URL__ || `${location.protocol}//${location.hostname}${
     location.port && location.port !== '80' && location.port !== '443' ? ':' + location.port : ''
   }/api`;
 
@@ -299,7 +299,7 @@ async function loadOrder() {
       console.warn(`[Tracking] Load attempt ${attempt + 1} failed:`, err.message);
       
       if (attempt < MAX_RETRIES) {
-        updateConnectionStatus('connecting');
+        window.CustomerTrackingSocket?.updateConnectionStatus?.('connecting');
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
       }
     }

@@ -12,8 +12,9 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY = 2000;
 
 function buildSocketUrl() {
+  if (window.__SOCKET_URL__) return window.__SOCKET_URL__;
+
   const protocol = location.protocol === 'https:' ? 'https://' : 'http://';
-  // Backend runs on :5000 (or same port as the serving app)
   const port = location.port === '5173' || location.port === '4173'
     ? ':5000'
     : (location.port === '80' || location.port === '443' ? '' : ':' + location.port);
@@ -107,4 +108,5 @@ function updateConnectionStatus(status) {
 window.CustomerTrackingSocket = {
   connectTrackingSocket,
   disconnectTrackingSocket,
+  updateConnectionStatus,
 };

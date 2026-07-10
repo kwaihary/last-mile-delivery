@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-// Kết nối đến Backend
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-vy8z.onrender.com/api' : 'http://localhost:5000/api');
+
 const api = axios.create({
-    baseURL: 'http://localhost:5000/api',
+    baseURL: API_BASE_URL,
     timeout: 10000,
     headers: {
         'Content-Type': 'application/json'
