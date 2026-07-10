@@ -139,7 +139,7 @@ export class OrderController {
                         order_notes: order.order_notes
                     });
                 }
-            } catch {}
+            } catch { }
 
             return sendResponse(res, 200, order, "Gán đơn thành công. Trạng thái: pickup");
         } catch (error: any) {
@@ -210,7 +210,7 @@ export class OrderController {
 
             // Gửi SMS khi bắt đầu giao hàng (pickup → delivering)
             if (status === 'delivering' && previousStatus === 'pickup') {
-                const publicBaseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+                const publicBaseUrl = process.env.PUBLIC_CUSTOMER_TRACKING;
                 const trackingUrl = `${publicBaseUrl}/track/${order.tracking_token}`;
 
                 console.log(`[SMS] Gửi tracking URL đến khách hàng cho đơn #${order.id}:`);
@@ -239,7 +239,7 @@ export class OrderController {
                         previousStatus
                     });
                 }
-            } catch {}
+            } catch { }
 
             return sendResponse(res, 200, savedOrder, `Cập nhật trạng thái thành ${status}`);
         } catch (error: any) {
@@ -320,7 +320,7 @@ export class OrderController {
                         previousStatus: 'delivering'
                     });
                 }
-            } catch {}
+            } catch { }
 
             return sendResponse(res, 200, null, "Hoàn tất luồng đơn hàng chặng cuối thành công");
         } catch (error: any) {
@@ -363,8 +363,8 @@ export class OrderController {
                 return sendResponse(res, 404, null, '', 'Không tìm thấy đơn hàng');
             }
 
-            const latestLocation = order.id && order.driver_id 
-                ? await redisClient.geopos('drivers:locations', String(order.driver_id)).then((pos) => pos?.[0]) 
+            const latestLocation = order.id && order.driver_id
+                ? await redisClient.geopos('drivers:locations', String(order.driver_id)).then((pos) => pos?.[0])
                 : null;
 
             // Lấy FULL lộ trình từ Redis (tất cả các tọa độ)
@@ -460,7 +460,7 @@ export class OrderController {
 
             const previousStatus = order.status;
             order.status = 'canceled';
-            order.order_notes = order.order_notes 
+            order.order_notes = order.order_notes
                 ? `${order.order_notes}\n[LÝ DO HỦY]: ${cancel_reason || 'Không có lý do'}`
                 : `[LÝ DO HỦY]: ${cancel_reason || 'Không có lý do'}`;
             order.complete_at = new Date();
@@ -493,7 +493,7 @@ export class OrderController {
                     status: 'canceled',
                     previousStatus
                 });
-            } catch {}
+            } catch { }
 
             return sendResponse(res, 200, order, "Đơn hàng đã được hủy thành công");
         } catch (error: any) {
@@ -525,18 +525,18 @@ export class OrderController {
     static async getOrderStats(req: any, res: Response) {
         try {
             const { start_date, end_date } = req.query;
-            
+
             let queryBuilder = orderRepo.createQueryBuilder('order');
 
             // Filter theo ngày nếu có
             if (start_date) {
-                queryBuilder = queryBuilder.andWhere('order.created_at >= :startDate', { 
-                    startDate: new Date(start_date as string) 
+                queryBuilder = queryBuilder.andWhere('order.created_at >= :startDate', {
+                    startDate: new Date(start_date as string)
                 });
             }
             if (end_date) {
-                queryBuilder = queryBuilder.andWhere('order.created_at <= :endDate', { 
-                    endDate: new Date(end_date as string) 
+                queryBuilder = queryBuilder.andWhere('order.created_at <= :endDate', {
+                    endDate: new Date(end_date as string)
                 });
             }
 
@@ -556,16 +556,16 @@ export class OrderController {
                 .filter(o => o.status === 'completed')
                 .reduce((sum, o) => sum + Number(o.ship_cod), 0);
 
-            const successRate = totalOrders > 0 
+            const successRate = totalOrders > 0
                 ? parseFloat(((completedOrders / totalOrders) * 100).toFixed(2))
                 : 0;
 
             // Thống kê theo ngày (7 ngày gần nhất)
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            
+
             const dailyStats: { [key: string]: { total: number, completed: number, revenue: number } } = {};
-            
+
             for (let i = 0; i < 7; i++) {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
@@ -621,7 +621,7 @@ export class OrderController {
                         where: { id: Number(stat.driver_id) },
                         relations: { driver_profile: true }
                     });
-                    
+
                     return {
                         driver_id: Number(stat.driver_id),
                         driver_name: driver?.full_name || 'Không xác định',
@@ -643,7 +643,7 @@ export class OrderController {
     static async getAllOrdersFiltered(req: any, res: Response) {
         try {
             const { status, search, start_date, end_date, page = 1, limit = 50 } = req.query;
-            
+
             let queryBuilder = orderRepo
                 .createQueryBuilder('order')
                 .leftJoinAndSelect('order.manager', 'manager')
@@ -657,13 +657,13 @@ export class OrderController {
 
             // Filter theo ngày
             if (start_date) {
-                queryBuilder = queryBuilder.andWhere('order.created_at >= :startDate', { 
-                    startDate: new Date(start_date as string) 
+                queryBuilder = queryBuilder.andWhere('order.created_at >= :startDate', {
+                    startDate: new Date(start_date as string)
                 });
             }
             if (end_date) {
-                queryBuilder = queryBuilder.andWhere('order.created_at <= :endDate', { 
-                    endDate: new Date(end_date as string) 
+                queryBuilder = queryBuilder.andWhere('order.created_at <= :endDate', {
+                    endDate: new Date(end_date as string)
                 });
             }
 
