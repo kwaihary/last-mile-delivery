@@ -4,7 +4,7 @@
  * Sử dụng fetch API thuần (thay vì axios để giảm bundle size)
  */
 
-const API_BASE_URL = '/api'; // Dùng relative path để Vite proxy hoạt động
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-vy8z.onrender.com/api' : '/api');
 const REQUEST_TIMEOUT = 15000;
 
 // =============================================================================

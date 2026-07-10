@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: last-mile-delivery
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_BASE_URL
+        value: https://last-mile-delivery-vy8z.onrender.com

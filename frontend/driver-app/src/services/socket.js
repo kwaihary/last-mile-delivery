@@ -6,8 +6,7 @@
 
 import { io } from 'socket.io-client';
 
-// Dùng cùng origin (Vite proxy sẽ forward sang backend)
-const SOCKET_URL = (typeof window !== 'undefined' && window.location.origin) || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-vy8z.onrender.com' : 'http://localhost:5000');
 
 // =============================================================================
 // STATE

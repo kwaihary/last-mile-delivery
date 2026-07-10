@@ -1,0 +1,11 @@
+{
+  "installCommand": "npm install --prefix frontend/manager",
+  "buildCommand": "npm run build --prefix frontend/manager",
+  "outputDirectory": "frontend/manager/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

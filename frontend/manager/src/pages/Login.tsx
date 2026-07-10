@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
@@ -11,8 +11,7 @@ const Login: React.FC = () => {
     const handleLogin = async (e: React.SyntheticEvent) => {
         e.preventDefault();
         try {
-            // Gọi API thật từ backend
-            const response = await axios.post('http://localhost:5000/api/users/login', {
+            const response = await api.post('/users/login', {
                 email,
                 password
             });
