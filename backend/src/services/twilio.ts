@@ -3,10 +3,10 @@ import twilio from 'twilio';
 export const sendTrackingSms = async (to: string, trackingUrl: string, orderId: number) => {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  
+
   // Số điện thoại WhatsApp Sandbox mặc định của hệ thống Twilio toàn cầu
-  const twilioWhatsAppSender = 'whatsapp:+14155238886'; 
-  
+  const twilioWhatsAppSender = 'whatsapp:+14155238886';
+
   // Lấy số điện thoại nhận từ file .env (hoặc xử lý chuỗi tham số 'to' truyền vào)
   const recipient = process.env.MY_WHATSAPP_NUMBER || to;
 
@@ -30,7 +30,7 @@ export const sendTrackingSms = async (to: string, trackingUrl: string, orderId: 
     const client = twilio(accountSid, authToken);
 
     // XÂY DỰNG NỘI DUNG TIN NHẮN (Thoải mái dùng tiếng Việt có dấu và link localhost)
-    const messageBody = 
+    const messageBody =
       `📦 *[Last My Delivery]* \n` +
       `Đơn hàng *#ORD-${orderId}* của bạn đang được giao.\n` +
       `🌐 Theo dõi hành trình tài xế tại link:\n` +
