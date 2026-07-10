@@ -123,7 +123,7 @@ function initMap() {
   }).addTo(map);
 
   // Route glow (halo mờ phía dưới) + route chính
-  // Đồng bộ màu với Dashboard/LiveMap (frontend-manager): #3b82f6
+  // Đồng bộ màu với Dashboard/LiveMap (frontend/manager): #3b82f6
   routeGlow = L.polyline([], {
     color: '#3b82f6',
     weight: 12,

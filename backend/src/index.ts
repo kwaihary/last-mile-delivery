@@ -2,7 +2,6 @@
 import express from 'express';
 import 'reflect-metadata';
 import cors from 'cors';
-import path from 'path';
 import { AppDataSource } from './config/database'
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -24,11 +23,14 @@ app.use(cors());
 // Tăng limit JSON body để nhận ảnh minh chứng dạng base64 từ driver-app
 app.use(express.json({ limit: '10mb' }));
 
+const customerTrackingRoot = '../frontend/customer-tracking/src';
+const driverAppRoot = '../frontend/driver-app/src';
+
 // ── Static Files: Customer Tracking (public, no auth required) ──────────────
-app.use('/track', express.static(path.resolve(__dirname, '../../customer-tracking/src')));
+app.use('/track', express.static(customerTrackingRoot));
 
 // ── Static Files: Driver App (auth required on API) ────────────────────────
-app.use('/driver', express.static(path.resolve(__dirname, '../../driver-app/src')));
+app.use('/driver', express.static(driverAppRoot));
 
 // ── Redirect root → driver app ──────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -77,10 +79,10 @@ app.get('/health', (req, res) => {
 // ── Customer Tracking Page ──────────────────────────────────────────────
 // Serve /track → customer-tracking/src/index.html (static, no auth needed)
 // Note: /track/:token is handled by the static middleware too
-const customerTrackingPath = path.resolve(__dirname, '../../customer-tracking/src/index.html');
+const customerTrackingPath = './index.html';
 // /track/:token cũng phải trả về cùng file HTML (token được đọc từ URL path ở phía client)
 app.get(['/track', '/track/:token'], (req, res) => {
-    res.sendFile(customerTrackingPath, (err) => {
+    res.sendFile(customerTrackingPath, { root: customerTrackingRoot }, (err) => {
         if (err) {
             console.error('Không tìm thấy customer-tracking page:', err);
             res.status(404).send('Không tìm thấy trang theo dõi');
