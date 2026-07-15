@@ -17,10 +17,10 @@ export const AppDataSource = new DataSource({
             password: process.env.DB_PASS as string,
             database: process.env.DB_NAME as string,
         }),
-    synchronize: false,
+    synchronize: true,
     logging: false,
     entities: [__dirname + '/../models/*.{ts,js}'],
-    migrations: [],
+    migrations: [__dirname + '/migrations/*.{ts,js}'],
     subscribers: [],
     ssl: isProduction || databaseUrl?.includes('sslmode=require')
         ? { rejectUnauthorized: false }

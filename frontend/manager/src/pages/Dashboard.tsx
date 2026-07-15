@@ -49,7 +49,7 @@ interface RouteHistory {
     coordinates_path: { lat: number; lng: number; t: number }[];
     total_distance: number;
     driver?: {
-        full_name: string;
+        full_name?: string;
     };
 }
 
@@ -67,9 +67,7 @@ interface Stats {
 }
 
 const Dashboard = () => {
-    // 1. Quản lý trạng thái giao diện
     const [activeTab, setActiveTab] = useState<string>('ALL');
-    const [isCreateModalOpenCreateOrder, setIsCreateModalOpenCreateOrder] = useState(false);
     const [isCreateModalOpenReport, setIsCreateModalOpenReport] = useState(false);
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
     const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
@@ -79,84 +77,44 @@ const Dashboard = () => {
     const [routeHistory, setRouteHistory] = useState<RouteHistory[]>([]);
     const [driverStats, setDriverStats] = useState<any[]>([]);
 
-    // 2. Quản lý dữ liệu
     const [orders, setOrders] = useState<Order[]>([]);
     const [driversData, setDriversData] = useState<{ [key: string]: DriverData }>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [cancelModal, setCancelModal] = useState({ isOpen: false, orderId: null as number | null, reason: '' });
-    const [formData, setFormData] = useState({
-        customer_name: '',
-        customer_phone: '',
-        address: '',
-        ship_cod: 0,
-        order_notes: ''
-    });
 
-    // Filter states
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
     const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
-    // State quản lý Modal Gán đơn
     const [assignModal, setAssignModal] = useState({ isOpen: false, orderId: null as number | null });
     const [driversList, setDriversList] = useState<any[]>([]);
     const [selectedAssignDriverId, setSelectedAssignDriverId] = useState<number | null>(null);
-
-    // State quản lý đơn hàng đang xem lộ trình trên bản đồ
     const [mapSelectedOrderId, setMapSelectedOrderId] = useState<number | null>(null);
 
-    // Stats state
     const [stats, setStats] = useState<Stats | null>(null);
-
     const navigate = useNavigate();
 
-    // 3. Hàm tạo đơn hàng (Tích hợp Geocoder)
-    const handleCreateOrder = async (e: React.SyntheticEvent) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-
-        try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(formData.address)}&format=json&limit=1`, {
-                headers: {
-                    'Accept-Language': 'vi',
-                    'User-Agent': 'DoAnTotNghiep_GiaoHang/1.0'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Geocoding failed');
-            }
-
-            const data = await response.json();
-            if (!data || data.length === 0) {
-                toast.error("Không tìm thấy tọa độ cho địa chỉ này, vui lòng nhập rõ hơn!");
-                setIsSubmitting(false);
-                return;
-            }
-
-            const lat = data[0].lat;
-            const lng = data[0].lon;
-
-            await api.post('/orders', {
-                ...formData,
-                latitude: Number(lat),
-                longitude: Number(lng)
-            });
-
-            toast.success("Tạo đơn hàng thành công!");
-            setIsCreateModalOpenCreateOrder(false);
-            fetchOrders();
-            fetchStats();
-            setFormData({ customer_name: '', customer_phone: '', address: '', ship_cod: 0, order_notes: '' });
-        } catch (error: any) {
-            toast.error(error.response?.data?.error || "Lỗi khi tạo đơn hàng");
-        } finally {
-            setIsSubmitting(false);
-        }
+    const regions: Record<string, { label: string; center: [number, number] }> = {
+        north: { label: 'Miền Bắc', center: [21.0285, 105.8542] },
+        central: { label: 'Miền Trung', center: [16.0471, 108.2068] },
+        south: { label: 'Miền Nam', center: [10.8231, 106.6297] }
     };
 
-    // 4. Hàm Hủy Đơn Hàng (sử dụng endpoint mới)
+    const defaultCenter = useMemo<[number, number]>(() => {
+        if (typeof window === 'undefined') return [10.771423, 106.698471];
+        const saved = localStorage.getItem('mapRegion');
+        if (saved && regions[saved]) return regions[saved].center;
+        return [10.771423, 106.698471];
+    }, []);
+
+    const handleRegionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const value = e.target.value;
+        if (!value || !regions[value]) return;
+        localStorage.setItem('mapRegion', value);
+        window.location.reload();
+    };
+
     const triggerCancelOrder = (orderId: number) => {
         setCancelModal({ isOpen: true, orderId, reason: '' });
     };
@@ -184,9 +142,8 @@ const Dashboard = () => {
         toast.info('Đã đăng xuất thành công!');
         setIsLogoutModalOpen(false);
         navigate('/login');
-    }
+    };
 
-    // Fetch stats từ API
     const fetchStats = async () => {
         try {
             const res = await api.get('/orders/stats');
@@ -198,10 +155,8 @@ const Dashboard = () => {
         }
     };
 
-    // Fetch driver stats - use manager endpoint
     const fetchDriverStats = async () => {
         try {
-            // Managers should use /users/drivers/stats which returns all drivers' stats
             const res = await api.get('/users/drivers/stats');
             if (res.data?.success && Array.isArray(res.data?.data)) {
                 setDriverStats(res.data.data);
@@ -210,11 +165,10 @@ const Dashboard = () => {
             }
         } catch (error) {
             console.error("Lỗi lấy thống kê tài xế:", error);
-            setDriverStats([]); // Ensure it's always an array
+            setDriverStats([]);
         }
     };
 
-    // Gọi API lấy dữ liệu đơn hàng (có filter)
     const fetchOrders = async () => {
         try {
             const params: any = { page: pagination.page, limit: pagination.limit };
@@ -225,18 +179,15 @@ const Dashboard = () => {
 
             const res = await api.get('/orders', { params });
             const responseData = res.data;
-            
-            // Backend trả về { success: true, data: { orders, pagination } }
+
             if (responseData.success && responseData.data) {
                 const data = responseData.data;
-                // Nếu có pagination, dùng data.orders
                 if (data.orders && Array.isArray(data.orders)) {
                     setOrders(data.orders);
                     if (data.pagination) {
                         setPagination(prev => ({ ...prev, ...data.pagination }));
                     }
-                } 
-                // Nếu không có pagination, data là array trực tiếp
+                }
                 else if (Array.isArray(data)) {
                     setOrders(data);
                 }
@@ -247,7 +198,6 @@ const Dashboard = () => {
         }
     };
 
-    // Lấy danh sách tài xế đang trực tuyến
     const fetchOnlineDrivers = async () => {
         try {
             const res = await api.get('/users/drivers/online');
@@ -285,7 +235,7 @@ const Dashboard = () => {
         fetchOnlineDrivers();
         fetchDriverStats();
 
-        const socket: Socket = io(import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-l7y0.onrender.com' : 'http://localhost:5000'), {
+        const socket: Socket = io(import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'http://localhost:5000' : 'http://localhost:5000'), {
             query: { token: localStorage.getItem('accessToken') }
         });
 
@@ -352,12 +302,10 @@ const Dashboard = () => {
         };
     }, []);
 
-    // Effect để fetch lại khi filter thay đổi
     useEffect(() => {
         fetchOrders();
     }, [statusFilter, searchQuery, selectedDateRange, pagination.page]);
 
-    // 7. Helper Function: Định dạng UI theo từng trạng thái đơn hàng
     const getOrderStatusUI = (status: string) => {
         switch (status) {
             case 'pending':
@@ -367,7 +315,7 @@ const Dashboard = () => {
             case 'delivering':
                 return { border: 'border-l-amber-400', badge: 'bg-amber-100 text-amber-700', text: 'Đang giao' };
             case 'completed':
-                return { border: 'border-l-emerald-500', badge: 'bg-emerald-100 text-emerald-700', text: 'Thành công' };
+                return { border: 'border-l-emerald-500', badge: 'bg-emerald-100 text-emerald-500', text: 'Thành công' };
             case 'failed':
                 return { border: 'border-l-red-500', badge: 'bg-red-100 text-red-700', text: 'Thất bại' };
             case 'canceled':
@@ -377,11 +325,9 @@ const Dashboard = () => {
         }
     };
 
-    // Open order detail modal + hiển thị lộ trình tài xế trên bản đồ (nếu đơn đang active)
     const openOrderDetail = async (order: Order) => {
         setSelectedOrder(order);
         setIsOrderDetailModalOpen(true);
-        // Chỉ hiển thị lộ trình cho đơn đang được tài xế xử lý
         if (['pickup', 'delivering'].includes(order.status)) {
             setMapSelectedOrderId(order.id);
         } else {
@@ -389,7 +335,6 @@ const Dashboard = () => {
         }
     };
 
-    // Open route history for an order
     const openRouteHistory = async (orderId: number) => {
         try {
             const res = await api.get(`/orders/${orderId}/route-history`);
@@ -400,7 +345,6 @@ const Dashboard = () => {
         }
     };
 
-    // 4.3 Mở Modal Gán Đơn và lấy danh sách tài xế
     const openAssignModal = async (orderId: number) => {
         setAssignModal({ isOpen: true, orderId });
         setSelectedAssignDriverId(null);
@@ -427,7 +371,6 @@ const Dashboard = () => {
         setSelectedAssignDriverId(driverId);
     };
 
-    // 4.4 Thực thi Gán Đơn
     const confirmAssignOrder = async () => {
         if (!assignModal.orderId || !selectedAssignDriverId) return;
         const selectedDriver = driversList.find(driver => driver.id === selectedAssignDriverId);
@@ -449,18 +392,15 @@ const Dashboard = () => {
         }
     };
 
-    // Filter orders for display
     const filteredOrders = orders.filter(o => {
         if (activeTab === 'PENDING' && o.status !== 'pending') return false;
         return true;
     });
 
-    // Format currency
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
     };
 
-    // Format date
     const formatDate = (dateStr: string) => {
         if (!dateStr) return '-';
         return new Date(dateStr).toLocaleString('vi-VN');
@@ -468,10 +408,8 @@ const Dashboard = () => {
 
     return (
         <div className="bg-slate-100 h-screen w-full flex overflow-hidden relative">
-            {/* Blur Overlays */}
-            <div className={`absolute inset-0 z-40 bg-slate-900/20 backdrop-blur-sm transition-all duration-300 ${isCreateModalOpenCreateOrder || isCreateModalOpenReport || cancelModal.isOpen || assignModal.isOpen || isLogoutModalOpen || isOrderDetailModalOpen || isRouteHistoryModalOpen || isDriverHistoryModalOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}></div>
+            <div className={`absolute inset-0 z-40 bg-slate-900/20 backdrop-blur-sm transition-all duration-300 ${isCreateModalOpenReport || cancelModal.isOpen || assignModal.isOpen || isLogoutModalOpen || isOrderDetailModalOpen || isRouteHistoryModalOpen || isDriverHistoryModalOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}></div>
 
-            {/* Sidebar */}
             <aside className="w-96 bg-white shadow-2xl flex flex-col shrink-0 relative z-30">
                 <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-800 text-white">
                     <div>
@@ -492,7 +430,6 @@ const Dashboard = () => {
                     </button>
                 </div>
 
-                {/* Filter Section */}
                 <div className="p-3 border-b border-slate-100 space-y-2">
                     <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg">
                         <button
@@ -511,8 +448,7 @@ const Dashboard = () => {
                             Đang giao
                         </button>
                     </div>
-                    
-                    {/* Search */}
+
                     <div className="relative">
                         <input
                             type="text"
@@ -526,7 +462,6 @@ const Dashboard = () => {
                         </svg>
                     </div>
 
-                    {/* Status Filter */}
                     <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
@@ -548,16 +483,15 @@ const Dashboard = () => {
                             <p>Không có đơn hàng nào</p>
                         </div>
                     ) : (
-                        filteredOrders.map((order: Order) => {
+                        filteredOrders.map((order) => {
                             const ui = getOrderStatusUI(order.status);
                             const canCancel = ['pending', 'pickup', 'delivering'].includes(order.status);
                             const isCompletedOrCanceled = ['completed', 'canceled', 'failed'].includes(order.status);
 
                             return (
-                                <div key={order.id} 
+                                <div key={order.id}
                                     onClick={() => openOrderDetail(order)}
                                     className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm cursor-pointer border-l-4 ${ui.border} hover:shadow-md transition-all relative`}>
-                                    {/* Nút Hủy Đơn */}
                                     {canCancel && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); triggerCancelOrder(order.id); }}
@@ -578,7 +512,7 @@ const Dashboard = () => {
                                     <p className="text-xs font-semibold text-slate-700 mb-2">COD: {formatCurrency(order.ship_cod)}</p>
 
                                     {order.status === 'pending' && (
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); openAssignModal(order.id); }}
                                             className="w-full bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                                         >
@@ -587,7 +521,7 @@ const Dashboard = () => {
                                     )}
 
                                     {isCompletedOrCanceled && (
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); openRouteHistory(order.id); }}
                                             className="w-full bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                                         >
@@ -599,7 +533,6 @@ const Dashboard = () => {
                         })
                     )}
 
-                    {/* Pagination */}
                     {pagination.totalPages > 1 && (
                         <div className="flex justify-center items-center gap-2 py-3">
                             <button
@@ -628,14 +561,9 @@ const Dashboard = () => {
                         onClick={() => setIsDriverHistoryModalOpen(true)}
                         className="flex-1 py-2.5 bg-slate-600 hover:bg-slate-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5 0 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2 2 2 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                         </svg>
                         Tài xế
-                    </button>
-                    <button
-                        onClick={() => setIsCreateModalOpenCreateOrder(true)}
-                        className="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs active:bg-blue-700 transition-colors">
-                        TẠO ĐƠN
                     </button>
                     <button
                         onClick={() => { fetchStats(); setIsCreateModalOpenReport(true); }}
@@ -645,169 +573,29 @@ const Dashboard = () => {
                 </div>
             </aside>
 
-            {/* Khu vực Bản đồ */}
             <main className="flex-1 relative bg-[#e5e3df]">
                 <LiveMap
                     driversData={driversData}
                     ordersData={orders}
                     selectedOrderId={mapSelectedOrderId}
                     onClearSelectedOrder={() => setMapSelectedOrderId(null)}
+                    defaultCenter={defaultCenter}
                 />
             </main>
 
-            {/* Modal Tạo Đơn Hàng */}
-            {isCreateModalOpenCreateOrder && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
-                    <form onSubmit={handleCreateOrder} className="p-8 space-y-6 max-h-[90vh] overflow-y-auto">
-                        <h2 className="text-2xl font-black text-slate-800 border-b pb-4">Tạo Đơn Hàng Mới</h2>
+            <div className="absolute top-3 right-3 z-[1000]">
+                <select
+                    id="region-select"
+                    onChange={handleRegionChange}
+                    className="bg-white shadow-xl rounded-xl px-3 py-2 text-xs font-semibold border border-slate-200 outline-none"
+                >
+                    <option value="">Chọn vùng</option>
+                    <option value="north">Miền Bắc</option>
+                    <option value="central">Miền Trung</option>
+                    <option value="south">Miền Nam</option>
+                </select>
+            </div>
 
-                        <div>
-                            <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
-                                <span className="w-5 h-5 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs">1</span>
-                                Thông tin Khách hàng
-                            </h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Tên người nhận <span className="text-red-500">*</span></label>
-                                    <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: Nguyễn Văn A" />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Số điện thoại <span className="text-red-500">*</span></label>
-                                    <input type="tel" required value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: 0901234567" />
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Địa chỉ giao hàng <span className="text-red-500">*</span></label>
-                                    <input type="text" required value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: 65 Huỳnh Thúc Kháng, Bến Nghé, Quận 1, Hồ Chí Minh" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
-                                <span className="w-5 h-5 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-xs">2</span>
-                                Chi tiết gói hàng
-                            </h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Tiền thu hộ (COD)</label>
-                                    <input type="number" min="0" value={formData.ship_cod} onChange={(e) => setFormData({ ...formData, ship_cod: Number(e.target.value) })} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="0 VNĐ" />
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Ghi chú cho Tài xế</label>
-                                    <textarea rows={2} value={formData.order_notes} onChange={(e) => setFormData({ ...formData, order_notes: e.target.value })} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 outline-none bg-slate-50" placeholder="VD: Khách hàng chỉ nhận giờ hành chính..."></textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3 mt-4">
-                            <button type="button" onClick={() => setIsCreateModalOpenCreateOrder(false)} className="px-5 py-2.5 font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">Hủy bỏ</button>
-                            <button type="submit" disabled={isSubmitting} className={`px-6 py-2.5 text-white font-bold rounded-xl shadow-lg transition-colors flex items-center gap-2 ${isSubmitting ? 'bg-slate-400' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'}`}>
-                                {isSubmitting ? 'Đang xử lý...' : 'Tạo đơn ngay'}
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            )}
-
-            {/* Modal Báo Cáo Thống Kê */}
-            {isCreateModalOpenReport && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-5xl bg-slate-50 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
-                    <div className="p-6 max-h-[85vh] overflow-y-auto">
-                        <div className="flex justify-between items-end mb-6">
-                            <div>
-                                <h2 className="text-2xl font-black text-slate-800">Tổng quan hiệu suất</h2>
-                                <p className="text-slate-500 text-sm mt-1">Dữ liệu được cập nhật theo thời gian thực.</p>
-                            </div>
-                            <button onClick={() => setIsCreateModalOpenReport(false)} className="px-4 py-2 text-slate-600 bg-slate-200 hover:bg-slate-300 font-bold rounded-lg transition-colors">
-                                Đóng
-                            </button>
-                        </div>
-
-                        {!stats ? (
-                            <div className="text-center py-16 text-slate-500">
-                                <svg className="w-8 h-8 mx-auto mb-3 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                                </svg>
-                                <p>Đang tải dữ liệu thống kê...</p>
-                            </div>
-                        ) : (
-                        <>
-                        <div className="grid grid-cols-4 gap-4 mb-6">
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <p className="text-slate-500 font-medium text-xs">Tổng đơn hàng</p>
-                                <p className="text-3xl font-black text-slate-800 mt-1">{stats.total}</p>
-                            </div>
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <p className="text-slate-500 font-medium text-xs">Tỷ lệ thành công</p>
-                                <p className="text-3xl font-black text-emerald-600 mt-1">{stats.successRate}%</p>
-                            </div>
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <p className="text-slate-500 font-medium text-xs">Tài xế Online</p>
-                                <p className="text-3xl font-black text-slate-800 mt-1">{Object.keys(driversData).length}</p>
-                            </div>
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <p className="text-slate-500 font-medium text-xs">Tổng thu COD</p>
-                                <p className="text-2xl font-black text-purple-600 mt-1">{formatCurrency(stats.totalCOD)}</p>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-bold text-slate-800 mb-4 text-sm">Trạng thái xử lý</h3>
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-xs border-b pb-2">
-                                        <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Thành công</span>
-                                        <span className="font-black text-slate-800">{stats.completed} Đơn</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs border-b pb-2">
-                                        <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-amber-500"></span> Đang giao</span>
-                                        <span className="font-black text-slate-800">{stats.delivering} Đơn</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs border-b pb-2">
-                                        <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Chờ lấy hàng</span>
-                                        <span className="font-black text-slate-800">{stats.pickup} Đơn</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs border-b pb-2">
-                                        <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-slate-400"></span> Chờ gán đơn</span>
-                                        <span className="font-black text-slate-800">{stats.pending} Đơn</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs">
-                                        <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-red-500"></span> Hủy/Thất bại</span>
-                                        <span className="font-black text-slate-800">{stats.failed + stats.canceled} Đơn</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-bold text-slate-800 mb-4 text-sm">Thống kê Tài xế</h3>
-                                <div className="space-y-2 max-h-48 overflow-y-auto">
-                                    {driverStats.length === 0 ? (
-                                        <p className="text-xs text-slate-500 text-center py-4">Chưa có dữ liệu tài xế</p>
-                                    ) : (
-                                        driverStats.map((driver: any) => (
-                                            <div key={driver.driver_id} className="flex justify-between items-center text-xs border-b border-slate-100 pb-2">
-                                                <div>
-                                                    <p className="font-semibold text-slate-700">{driver.driver_name}</p>
-                                                    <p className="text-slate-400 text-[10px]">{driver.vehicle_type} • {driver.license_plate}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="font-bold text-emerald-600">{driver.total_deliveries} đơn</p>
-                                                    <p className="text-slate-400 text-[10px]">{driver.total_distance_km} km</p>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        </>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Modal Chi Tiết Đơn Hàng */}
             {isOrderDetailModalOpen && selectedOrder && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
                     <div className="p-6">
@@ -901,7 +689,6 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Modal Lịch Sử Lộ Trình */}
             {isRouteHistoryModalOpen && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
                     <div className="p-6">
@@ -918,7 +705,7 @@ const Dashboard = () => {
                             </div>
                         ) : (
                             <div className="space-y-4 max-h-96 overflow-y-auto">
-                                {routeHistory.map((route: RouteHistory) => (
+                                {routeHistory.map((route) => (
                                     <div key={route.id} className="bg-slate-50 p-4 rounded-xl">
                                         <div className="flex justify-between items-center mb-2">
                                             <p className="font-semibold text-slate-800">
@@ -937,7 +724,6 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Modal Thống Kê Tài Xế */}
             {isDriverHistoryModalOpen && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
                     <div className="p-6">
@@ -957,11 +743,11 @@ const Dashboard = () => {
                                 {driverStats.map((driver: any) => (
                                     <div key={driver.driver_id} className="bg-slate-50 p-4 rounded-xl flex justify-between items-center">
                                         <div>
-                                            <p className="font-bold text-slate-800">{driver.driver_name}</p>
+                                            <p className="font-bold text-slate-800 text-sm">{driver.driver_name}</p>
                                             <p className="text-xs text-slate-500">{driver.vehicle_type} • {driver.license_plate}</p>
                                         </div>
                                         <div className="text-right">
-                                            <p className="text-emerald-600 font-bold">{driver.total_deliveries} đơn</p>
+                                            <p className="font-bold text-emerald-600">{driver.total_deliveries} đơn</p>
                                             <p className="text-xs text-slate-500">{driver.total_distance_km} km</p>
                                         </div>
                                     </div>
@@ -972,7 +758,6 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Modal Xác Nhận Hủy Đơn Hàng */}
             {cancelModal.isOpen && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
                     <div className="p-6 text-center">
@@ -1016,7 +801,6 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Modal Gán Đơn Hàng */}
             {assignModal.isOpen && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
                     <div className="p-5">
@@ -1026,7 +810,7 @@ const Dashboard = () => {
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                             </button>
                         </div>
-                        
+
                         <div className="max-h-[40vh] overflow-y-auto space-y-2 pr-2">
                             {driversList.length === 0 ? (
                                 <p className="text-center text-slate-500 py-4">Không tìm thấy tài xế nào...</p>
@@ -1035,8 +819,8 @@ const Dashboard = () => {
                                     const isOnline = getDriverOnlineStatus(driver);
                                     const isSelected = selectedAssignDriverId === driver.id;
                                     return (
-                                        <div 
-                                            key={driver.id} 
+                                        <div
+                                            key={driver.id}
                                             onClick={() => handleSelectDriver(driver.id)}
                                             className={`p-3 border rounded-lg cursor-pointer transition-all flex items-center justify-between ${isSelected ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200 hover:border-blue-300'} ${!isOnline ? 'opacity-60' : ''}`}
                                         >
@@ -1059,10 +843,10 @@ const Dashboard = () => {
                                 })
                             )}
                         </div>
-                        
+
                         <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
                             <button onClick={() => setAssignModal({ isOpen: false, orderId: null })} className="px-4 py-2 font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors text-sm">Hủy</button>
-                            <button 
+                            <button
                                 onClick={confirmAssignOrder}
                                 disabled={!selectedAssignDriverId || isSubmitting}
                                 className={`px-4 py-2 font-bold text-white rounded-lg transition-colors text-sm ${(!selectedAssignDriverId || isSubmitting) ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}
@@ -1074,7 +858,6 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Modal Xác Nhận Đăng Xuất */}
             {isLogoutModalOpen && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
                     <div className="p-6 text-center">
@@ -1099,6 +882,103 @@ const Dashboard = () => {
                                 Đăng xuất
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {isCreateModalOpenReport && (
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-5xl bg-slate-50 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
+                    <div className="p-6 max-h-[85vh] overflow-y-auto">
+                        <div className="flex justify-between items-end mb-6">
+                            <div>
+                                <h2 className="text-2xl font-black text-slate-800">Tổng quan hiệu suất</h2>
+                                <p className="text-slate-500 text-sm mt-1">Dữ liệu được cập nhật theo thời gian thực.</p>
+                            </div>
+                            <button onClick={() => setIsCreateModalOpenReport(false)} className="px-4 py-2 text-slate-600 bg-slate-200 hover:bg-slate-300 font-bold rounded-lg transition-colors">
+                                Đóng
+                            </button>
+                        </div>
+
+                        {!stats ? (
+                            <div className="text-center py-16 text-slate-500">
+                                <svg className="w-8 h-8 mx-auto mb-3 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                                <p>Đang tải dữ liệu thống kê...</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-4 gap-4 mb-6">
+                                    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                                        <p className="text-slate-500 font-medium text-xs">Tổng đơn hàng</p>
+                                        <p className="text-3xl font-black text-slate-800 mt-1">{stats.total}</p>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                                        <p className="text-slate-500 font-medium text-xs">Tỷ lệ thành công</p>
+                                        <p className="text-3xl font-black text-emerald-600 mt-1">{stats.successRate}%</p>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                                        <p className="text-slate-500 font-medium text-xs">Tài xế Online</p>
+                                        <p className="text-3xl font-black text-slate-800 mt-1">{Object.keys(driversData).length}</p>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                                        <p className="text-slate-500 font-medium text-xs">Tổng thu COD</p>
+                                        <p className="text-2xl font-black text-purple-600 mt-1">{formatCurrency(stats.totalCOD)}</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                                        <h3 className="font-bold text-slate-800 mb-4 text-sm">Trạng thái xử lý</h3>
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center text-xs border-b pb-2">
+                                                <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Thành công</span>
+                                                <span className="font-black text-slate-800">{stats.completed} Đơn</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs border-b pb-2">
+                                                <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-amber-500"></span> Đang giao</span>
+                                                <span className="font-black text-slate-800">{stats.delivering} Đơn</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs border-b pb-2">
+                                                <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Chờ lấy hàng</span>
+                                                <span className="font-black text-slate-800">{stats.pickup} Đơn</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs border-b pb-2">
+                                                <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-slate-400"></span> Chờ gán đơn</span>
+                                                <span className="font-black text-slate-800">{stats.pending} Đơn</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs">
+                                                <span className="flex items-center gap-2 font-semibold text-slate-700"><span className="w-3 h-3 rounded-full bg-red-500"></span> Hủy/Thất bại</span>
+                                                <span className="font-black text-slate-800">{stats.failed + stats.canceled} Đơn</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                                        <h3 className="font-bold text-slate-800 mb-4 text-sm">Thống kê Tài xế</h3>
+                                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                                            {driverStats.length === 0 ? (
+                                                <p className="text-xs text-slate-500 text-center py-4">Chưa có dữ liệu tài xế</p>
+                                            ) : (
+                                                driverStats.map((driver: any) => (
+                                                    <div key={driver.driver_id} className="flex justify-between items-center text-xs border-b border-slate-100 pb-2">
+                                                        <div>
+                                                            <p className="font-semibold text-slate-700">{driver.driver_name}</p>
+                                                            <p className="text-slate-400 text-[10px]">{driver.vehicle_type} • {driver.license_plate}</p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="font-bold text-emerald-600">{driver.total_deliveries} đơn</p>
+                                                            <p className="text-slate-400 text-[10px]">{driver.total_distance_km} km</p>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import DriverMarker from './DriverMarker';
 
-const defaultCenter: [number, number] = [10.762622, 106.660172];
+const defaultCenter: [number, number] = [10.771423, 106.698471];
 
 interface DriverData {
     lat: number;

@@ -30,6 +30,12 @@ export class Order {
     @Column({ type: 'decimal', precision: 11, scale: 8, nullable: false })
     longitude: number;
 
+    @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true, default: 10.771967 })
+    warehouse_latitude: number;
+
+    @Column({ type: 'decimal', precision: 11, scale: 8, nullable: true, default: 106.701209 })
+    warehouse_longitude: number;
+
     @Column({ type: 'decimal', precision: 12, scale: 3, nullable: false })
     ship_cod: number;
 

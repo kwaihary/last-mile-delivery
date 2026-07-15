@@ -6,7 +6,7 @@
 
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://last-mile-delivery-l7y0.onrender.com' : 'http://localhost:5000');
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'http://localhost:5000' : 'http://localhost:5000');
 
 // =============================================================================
 // STATE
